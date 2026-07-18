@@ -1,0 +1,6 @@
+{
+  "name": "Brand Identity Generator",
+  "description": "Generate a comprehensive Brand Bible with logos, 5-color palettes, and suggested Google Font pairings based on your company mission, with a built-in brand consultant chatbot.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
