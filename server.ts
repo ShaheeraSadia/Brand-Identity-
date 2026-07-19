@@ -65,7 +65,34 @@ Make sure the color palette contains exactly 5 highly cohesive, professional, mo
                 type: Type.ARRAY,
                 items: { type: Type.STRING }
               },
-              brandVoice: { type: Type.STRING },
+              brandVoice: {
+                type: Type.OBJECT,
+                description: "Detailed brand voice, tone, and copywriting guidelines.",
+                properties: {
+                  tone: { type: Type.STRING, description: "A descriptive synthesis of the brand tone, e.g., 'Authoritative, clear, and educational yet highly empathetic.'" },
+                  personalityKeywords: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: "3 core brand voice keywords representing the brand's persona (e.g. ['Empathetic', 'Confident', 'Direct'])"
+                  },
+                  doVoiceRules: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: "3 copywriting directives on what to do (e.g., ['Keep sentences active and short', 'Address the reader with warmth'])"
+                  },
+                  dontVoiceRules: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: "3 copywriting limits or style violations (e.g., ['Do not use salesy jargon', 'Avoid sounding dry or robotic'])"
+                  },
+                  samplePhrases: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: "2-3 short brand copy examples or slogans demonstrating this voice."
+                  }
+                },
+                required: ["tone", "personalityKeywords", "doVoiceRules", "dontVoiceRules", "samplePhrases"]
+              },
               logoPrompt: { 
                 type: Type.STRING, 
                 description: "A highly descriptive, creative prompt for an AI image generator to produce a stunning, professional vector logo/mark for this brand. The prompt should specify clean graphic shapes, specific branding colors, solid flat background, premium minimal 2D layout, high-end vector art style. MUST NOT include text, letters, frame borders, or mockups. Do NOT use quotes around colors."
@@ -474,19 +501,42 @@ Please analyze the brand and any provided logo image to create this favicon.`;
       let systemPrompt = "You are a highly perceptive, world-class Brand Strategy and Design Consultant. ";
       
       if (brandBible) {
+        let voiceDetail = "";
+        let targetTone = "helpful, premium, and professional";
+
+        if (brandBible.brandVoice && typeof brandBible.brandVoice === "object") {
+          const bv = brandBible.brandVoice;
+          targetTone = bv.tone || targetTone;
+          voiceDetail = `
+- Tone Description: ${bv.tone}
+- Verbal Personality Keywords: ${bv.personalityKeywords?.join(", ")}
+- Writing Do's: ${bv.doVoiceRules?.join("; ")}
+- Writing Don'ts: ${bv.dontVoiceRules?.join("; ")}
+- Brand Copy Samples: ${bv.samplePhrases?.map((p: string) => `"${p}"`).join(" | ")}
+`;
+        } else {
+          voiceDetail = brandBible.brandVoice || "";
+          targetTone = voiceDetail || targetTone;
+        }
+
         systemPrompt += `You are currently advising the company "${brandBible.companyName}" which operates in the "${brandBible.industry}" sector.
 Their core company mission is: "${brandBible.mission}".
 Their target audience is: "${brandBible.targetAudience}".
 
 Here are the specific Brand Specifications they generated:
-- Brand Voice: ${brandBible.brandVoice}
+- Brand Voice Guidelines: ${voiceDetail}
 - Core Keywords: ${brandBible.brandKeywords?.join(", ")}
 - Typography Pairing: Header Font - ${brandBible.typography?.headerFont}, Body Font - ${brandBible.typography?.bodyFont}
 - Color Palette: ${brandBible.colorPalette?.map((c: any) => `${c.name} (${c.hex}) - ${c.role}`).join(", ")}
 - Dos: ${brandBible.doGuidelines?.join("; ")}
 - Don'ts: ${brandBible.dontGuidelines?.join("; ")}
 
-Refer to these details often, give specific suggestions (such as website copywriting, advertising copies, color hex combinations, logo implementation guidelines), and stay professional. Always maintain a helpful, premium tone.`;
+CRITICAL BRAND VOICE ADOPTION DIRECTIVE:
+You MUST fully adopt and speak in this company's specific Brand Voice when responding to the user.
+Specifically, your response tone must strictly follow: "${targetTone}".
+If they have Writing Do's, incorporate them. If they have Writing Don'ts, avoid them strictly.
+Endeavor to make your advice sound like it came straight from a writer working inside "${brandBible.companyName}".
+However, always ensure you answer their underlying strategy questions with actual, professional insights and do not lose usefulness. Just let the expression and phrasing carry this voice naturally.`;
       } else {
         systemPrompt += "The user has not generated a Brand Bible yet. Encourage them to input their company name and mission to create their comprehensive Brand Bible, or assist them in brainstorm concepts, company names, or missions right now!";
       }

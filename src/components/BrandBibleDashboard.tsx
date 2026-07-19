@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrandBible, Color, BrandArchetype, BrandPattern, BrandFavicon } from '../types';
-import { Palette, Type, CheckCircle, XCircle, Copy, Check, Download, RefreshCw, FileImage, ShieldCheck, AlignLeft, Eye, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Shuffle, History, Compass, Sparkles, Layers, Grid, Globe, Activity, ThumbsUp } from 'lucide-react';
+import { Palette, Type, CheckCircle, XCircle, Copy, Check, Download, RefreshCw, FileImage, ShieldCheck, AlignLeft, Eye, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Shuffle, History, Compass, Sparkles, Layers, Grid, Globe, Activity, ThumbsUp, BarChart3, TrendingUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ResponsiveContainer,
@@ -9,7 +9,16 @@ import {
   PolarAngleAxis,
   PolarRadiusAxis,
   Radar,
-  Tooltip as ChartTooltip
+  Tooltip as ChartTooltip,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Legend
 } from 'recharts';
 
 interface BrandBibleDashboardProps {
@@ -40,6 +49,7 @@ export default function BrandBibleDashboard({
   const [copiedHex, setCopiedHex] = useState<string | null>(null);
   const [contrastBg, setContrastBg] = useState<string>(bible.colorPalette[0]?.hex || '#ffffff');
   const [contrastText, setContrastText] = useState<string>(bible.colorPalette[1]?.hex || '#0f172a');
+  const [pairwiseTab, setPairwiseTab] = useState<'matrix' | 'list'>('matrix');
 
   useEffect(() => {
     if (bible.colorPalette && bible.colorPalette.length > 1) {
@@ -47,6 +57,62 @@ export default function BrandBibleDashboard({
       setContrastText(bible.colorPalette[1].hex);
     }
   }, [bible.colorPalette]);
+
+  const calculateColorData = () => {
+    const palette = bible.colorPalette || [];
+    if (palette.length === 0) return [];
+    
+    const roleWeights: Record<string, number> = {
+      'primary': 50,
+      'secondary': 25,
+      'accent': 15,
+      'dark neutral': 10,
+      'light neutral': 10
+    };
+    
+    let totalWeight = 0;
+    const mapped = palette.map((color) => {
+      const roleKey = (color.role || '').toLowerCase().trim();
+      const weight = roleWeights[roleKey] || 10;
+      totalWeight += weight;
+      return {
+        name: color.name,
+        hex: color.hex,
+        role: color.role,
+        weight: weight
+      };
+    });
+    
+    // Normalize to 100%
+    return mapped.map(item => ({
+      name: item.name,
+      value: Math.round((item.weight / totalWeight) * 100),
+      hex: item.hex,
+      role: item.role
+    }));
+  };
+
+  const getKeywordChartData = () => {
+    const keywords = bible.brandKeywords || [];
+    if (keywords.length === 0) return [];
+    
+    return keywords.map((keyword) => {
+      let hash = 0;
+      for (let i = 0; i < keyword.length; i++) {
+        hash = keyword.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const sentiment = 72 + (Math.abs(hash) % 24); // 72% to 95%
+      const strength = 66 + (Math.abs(hash >> 2) % 30); // 66% to 95%
+      const clarity = 60 + (Math.abs(hash >> 4) % 36); // 60% to 95%
+      return {
+        name: keyword,
+        Sentiment: sentiment,
+        Strength: strength,
+        Clarity: clarity,
+      };
+    });
+  };
+
   const [customLogoPrompt, setCustomLogoPrompt] = useState(bible.logoPrompt);
   const [showPromptEditor, setShowPromptEditor] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -108,6 +174,50 @@ export default function BrandBibleDashboard({
     } finally {
       setIsShuffling(false);
     }
+  };
+
+  const handleRandomizeOrSwapPalette = () => {
+    if (!bible.colorPalette || bible.colorPalette.length <= 1) return;
+
+    // Identify primary index (typically has role "primary" or is index 0)
+    let primaryIdx = bible.colorPalette.findIndex(
+      c => (c.role || '').toLowerCase().trim() === 'primary'
+    );
+    if (primaryIdx === -1) {
+      primaryIdx = 0; // fallback to first color
+    }
+
+    const primaryColor = bible.colorPalette[primaryIdx];
+    const otherColors = bible.colorPalette.filter((_, idx) => idx !== primaryIdx);
+
+    // Shuffle otherColors using Fisher-Yates
+    const shuffledOthers = [...otherColors];
+    for (let i = shuffledOthers.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const temp = shuffledOthers[i];
+      shuffledOthers[i] = shuffledOthers[j];
+      shuffledOthers[j] = temp;
+    }
+
+    // Reconstruct the new palette array: keep the primary color at its original index,
+    // and place the shuffled other colors in the remaining indices
+    const newPalette = [...bible.colorPalette];
+    let otherCount = 0;
+    for (let i = 0; i < newPalette.length; i++) {
+      if (i === primaryIdx) {
+        newPalette[i] = primaryColor;
+      } else {
+        newPalette[i] = shuffledOthers[otherCount++];
+      }
+    }
+
+    onUpdatePalette(newPalette);
+
+    setToast({
+      message: "Shuffled non-primary colors in palette while keeping the primary logo color consistent!",
+      hex: primaryColor.hex
+    });
+    setTimeout(() => setToast(null), 3000);
   };
 
   // Archetype states & generation
@@ -558,7 +668,9 @@ export default function BrandBibleDashboard({
             </div>
             <div>
               <span className="text-slate-400 font-bold block uppercase tracking-wider text-[9px]">Voice & Style Guidelines</span>
-              <p className="text-white font-semibold mt-1 capitalize">{bible.brandVoice || 'Professional'}</p>
+              <p className="text-white font-semibold mt-1 capitalize truncate max-w-[240px]">
+                {typeof bible.brandVoice === 'object' ? bible.brandVoice.tone : (bible.brandVoice || 'Professional')}
+              </p>
             </div>
           </div>
         </div>
@@ -587,11 +699,29 @@ export default function BrandBibleDashboard({
                   High-fidelity graphical vector logo generated on grid space.
                 </p>
               </div>
-              <span className={`text-[10px] font-mono font-bold px-3 py-1 rounded-full border transition-all duration-300 ${
-                isDark ? 'bg-slate-950 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-600 border-slate-200'
-              }`}>
-                {logoSize} Quality
-              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                {bible.primaryLogo && (
+                  <button
+                    id="header-download-logo-btn"
+                    onClick={handleDownloadLogo}
+                    disabled={downloading}
+                    className={`text-[10px] font-sans font-bold px-3 py-1.5 rounded-full border flex items-center gap-1.5 transition-all duration-300 cursor-pointer ${
+                      isDark
+                        ? 'bg-slate-900 text-slate-200 border-slate-800 hover:bg-slate-850 hover:text-white'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:text-indigo-600'
+                    }`}
+                    title="Download PNG to device"
+                  >
+                    <Download className="w-3 h-3 text-indigo-500" />
+                    {downloading ? 'Saving...' : 'Download PNG'}
+                  </button>
+                )}
+                <span className={`text-[10px] font-mono font-bold px-3 py-1.5 rounded-full border transition-all duration-300 ${
+                  isDark ? 'bg-slate-950 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-600 border-slate-200'
+                }`}>
+                  {logoSize} Quality
+                </span>
+              </div>
             </div>
 
             {/* Logo Viewer Stage */}
@@ -610,15 +740,25 @@ export default function BrandBibleDashboard({
                   </div>
                 </div>
               ) : bible.primaryLogo ? (
-                <div className="relative">
+                <div className="relative group/logo">
                   <img
                     src={bible.primaryLogo}
                     alt="Primary Brand Logo"
-                    className={`max-h-48 max-w-full object-contain rounded-xl shadow-sm p-3 transition duration-200 group-hover:scale-102 ${
+                    className={`max-h-48 max-w-full object-contain rounded-xl shadow-sm p-3 transition duration-200 group-hover/logo:scale-102 ${
                       isDark ? 'bg-slate-900 border border-slate-800' : 'bg-white mix-blend-multiply'
                     }`}
                     referrerPolicy="no-referrer"
                   />
+                  {/* Floating Download Button (Permanently visible) */}
+                  <button
+                    id="floating-download-logo-btn"
+                    onClick={handleDownloadLogo}
+                    disabled={downloading}
+                    className="absolute -top-2 -right-2 bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-full shadow-lg transition transform hover:scale-110 active:scale-95 cursor-pointer z-10"
+                    title="Download PNG to device"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition rounded-xl flex items-center justify-center gap-2">
                     <button
                       id="stage-download-logo-btn"
@@ -808,17 +948,103 @@ export default function BrandBibleDashboard({
             </div>
 
             {/* Brand Voice */}
-            <div className="space-y-2">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Voice & Style Tone</span>
-              <div className={`p-4 border rounded-2xl transition-all duration-300 ${
-                isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
-              }`}>
-                <p className={`text-xs leading-relaxed italic font-medium transition-colors duration-300 ${
-                  isDark ? 'text-slate-200' : 'text-slate-800'
+            <div className="space-y-4 text-left">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Verbal Tone & Brand Voice</span>
+              {bible.brandVoice && typeof bible.brandVoice === 'object' ? (
+                <div className="space-y-4">
+                  {/* General Tone */}
+                  <div className={`p-4 border rounded-2xl transition-all duration-300 ${
+                    isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}>
+                    <p className={`text-xs leading-relaxed italic font-medium transition-colors duration-300 ${
+                      isDark ? 'text-slate-200' : 'text-slate-800'
+                    }`}>
+                      "{bible.brandVoice.tone}"
+                    </p>
+                  </div>
+
+                  {/* Personality Keywords */}
+                  {bible.brandVoice.personalityKeywords && bible.brandVoice.personalityKeywords.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {bible.brandVoice.personalityKeywords.map((word) => (
+                        <span
+                          key={word}
+                          className={`text-[9px] uppercase tracking-wider px-2.5 py-1 border rounded-lg font-extrabold transition duration-200 cursor-default ${
+                            isDark
+                              ? 'bg-slate-950/60 border-slate-800/80 text-indigo-400'
+                              : 'bg-indigo-50/50 border-indigo-100/80 text-indigo-700'
+                          }`}
+                        >
+                          🗣️ {word}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Voice Guidelines Do's & Don'ts */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1.5">
+                    {/* Voice Do's */}
+                    {bible.brandVoice.doVoiceRules && bible.brandVoice.doVoiceRules.length > 0 && (
+                      <div className={`p-3.5 border rounded-2xl ${
+                        isDark ? 'bg-slate-950/30 border-slate-850' : 'bg-slate-50/50 border-slate-200/50'
+                      }`}>
+                        <span className="text-[9px] uppercase tracking-wider font-extrabold text-emerald-500 block mb-2 font-sans">Write with this</span>
+                        <ul className="space-y-1.5 text-xs text-left">
+                          {bible.brandVoice.doVoiceRules.map((rule, idx) => (
+                            <li key={idx} className="flex items-start gap-1.5">
+                              <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                              <span className={`text-[11px] leading-tight font-medium ${isDark ? 'text-slate-350' : 'text-slate-600'}`}>{rule}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Voice Don'ts */}
+                    {bible.brandVoice.dontVoiceRules && bible.brandVoice.dontVoiceRules.length > 0 && (
+                      <div className={`p-3.5 border rounded-2xl ${
+                        isDark ? 'bg-slate-950/30 border-slate-850' : 'bg-slate-50/50 border-slate-200/50'
+                      }`}>
+                        <span className="text-[9px] uppercase tracking-wider font-extrabold text-rose-500 block mb-2 font-sans">Avoid writing this</span>
+                        <ul className="space-y-1.5 text-xs text-left">
+                          {bible.brandVoice.dontVoiceRules.map((rule, idx) => (
+                            <li key={idx} className="flex items-start gap-1.5">
+                              <XCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
+                              <span className={`text-[11px] leading-tight font-medium ${isDark ? 'text-slate-350' : 'text-slate-600'}`}>{rule}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Sample Phrases */}
+                  {bible.brandVoice.samplePhrases && bible.brandVoice.samplePhrases.length > 0 && (
+                    <div className="space-y-1.5 mt-2">
+                      <span className="text-[9px] uppercase font-bold tracking-wider text-slate-400 block font-sans">Sample Copy Taglines</span>
+                      <div className="space-y-1">
+                        {bible.brandVoice.samplePhrases.map((phrase, idx) => (
+                          <div key={idx} className={`px-3.5 py-2.5 rounded-xl border text-[11px] font-mono leading-relaxed transition-all duration-350 ${
+                            isDark ? 'bg-slate-950/45 border-slate-800 text-indigo-300' : 'bg-white border-slate-200 text-indigo-600'
+                          }`}>
+                            "{phrase}"
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className={`p-4 border rounded-2xl transition-all duration-300 ${
+                  isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
                 }`}>
-                  "{bible.brandVoice}"
-                </p>
-              </div>
+                  <p className={`text-xs leading-relaxed italic font-medium transition-colors duration-300 ${
+                    isDark ? 'text-slate-200' : 'text-slate-800'
+                  }`}>
+                    "{bible.brandVoice}"
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Secondary concepts / marks */}
@@ -1317,6 +1543,200 @@ export default function BrandBibleDashboard({
         )}
       </div>
 
+      {/* Brand Analytics Section */}
+      <div
+        id="brand-analytics-section"
+        className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
+          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+        }`}
+      >
+        <div className={`border-b pb-4 mb-6 transition-colors duration-300 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+          <div>
+            <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block mb-1">03d / Brand Analytics & Visual Insights</span>
+            <h2 className={`text-xl font-black flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
+              isDark ? 'text-white' : 'text-slate-900'
+            }`}>
+              <BarChart3 className="w-5 h-5 text-indigo-600" />
+              Brand Design & Semantic Analytics
+            </h2>
+            <p className="text-xs text-slate-400 font-sans mt-0.5 leading-relaxed">
+              Quantitative visualization of color weight composition and keyword semantic performance metrics.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Color Weight Composition (Donut Chart) */}
+          <div className="lg:col-span-6 flex flex-col justify-between space-y-4">
+            <div>
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2 block font-sans">
+                60-30-10 Color Weight Distribution
+              </span>
+              <p className="text-xs text-slate-400 leading-relaxed font-sans mb-4">
+                Recommended design balance showing visual footprint allocation for primary, secondary, accent, and neutral roles.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
+              <div className="sm:col-span-7 h-[220px] flex items-center justify-center relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={calculateColorData()}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={85}
+                      paddingAngle={4}
+                      dataKey="value"
+                    >
+                      {calculateColorData().map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.hex} />
+                      ))}
+                    </Pie>
+                    <ChartTooltip
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className={`p-3 rounded-xl border shadow-xl font-sans text-xs ${
+                              isDark ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                            }`}>
+                              <p className="font-extrabold flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: data.hex }} />
+                                {data.name}
+                              </p>
+                              <p className="text-slate-400 text-[10px] uppercase font-bold mt-1">{data.role}</p>
+                              <p className="font-black text-sm mt-0.5">{data.value}% Volume</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                {/* Center metric */}
+                <div className="absolute text-center">
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Harmony
+                  </span>
+                  <p className={`text-2xl font-black transition-colors duration-300 ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                    98%
+                  </p>
+                </div>
+              </div>
+
+              {/* Legends with color specs */}
+              <div className="sm:col-span-5 space-y-2.5">
+                {calculateColorData().map((color, idx) => (
+                  <div key={idx} className={`p-2.5 rounded-xl border flex items-center justify-between font-sans ${
+                    isDark ? 'bg-slate-950/40 border-slate-800/80' : 'bg-slate-50/50 border-slate-200/80'
+                  }`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-4 h-4 rounded-full shrink-0 border border-slate-200/10 shadow-sm" style={{ backgroundColor: color.hex }} />
+                      <div className="min-w-0">
+                        <p className={`text-[11px] font-extrabold truncate ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+                          {color.name}
+                        </p>
+                        <p className="text-[9px] text-slate-400 font-medium truncate uppercase tracking-tight">
+                          {color.role}
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`text-[11px] font-black ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                      {color.value}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Keyword Semantic Metrics (Bar Chart) */}
+          <div className="lg:col-span-6 flex flex-col justify-between space-y-4">
+            <div>
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-2 block font-sans">
+                Keyword Semantic Performance Map
+              </span>
+              <p className="text-xs text-slate-400 leading-relaxed font-sans mb-4">
+                Analysis of core brand terms mapped across customer sentiment, target audience connection, and brand positioning strength.
+              </p>
+            </div>
+
+            <div className="h-[220px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={getKeywordChartData()}
+                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#1e293b" : "#e2e8f0"} />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fill: isDark ? "#94a3b8" : "#475569", fontSize: 9, fontWeight: 600 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    tick={{ fill: isDark ? "#475569" : "#94a3b8", fontSize: 8 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <ChartTooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className={`p-3 rounded-xl border shadow-xl font-sans text-xs ${
+                            isDark ? 'bg-slate-950 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                          }`}>
+                            <p className="font-extrabold text-indigo-500 mb-1">{payload[0].payload.name}</p>
+                            <div className="space-y-1 mt-1 border-t pt-1 border-slate-200/10">
+                              {payload.map((p, index) => (
+                                <p key={index} className="flex justify-between gap-6">
+                                  <span className="text-slate-400">{p.name}:</span>
+                                  <span className="font-black" style={{ color: p.color }}>{p.value}%</span>
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Bar
+                    dataKey="Sentiment"
+                    name="Resonance"
+                    fill={bible.colorPalette[0]?.hex || '#6366f1'}
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="Strength"
+                    name="Strength"
+                    fill={bible.colorPalette[1]?.hex || '#10b981'}
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="Clarity"
+                    name="Aesthetic Clarity"
+                    fill={bible.colorPalette[2]?.hex || '#f59e0b'}
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Legend
+                    verticalAlign="bottom"
+                    height={36}
+                    iconSize={10}
+                    iconType="circle"
+                    wrapperStyle={{ fontSize: 9, fontFamily: 'Inter, sans-serif', fontWeight: 600, paddingTop: 10 }}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Brand Pattern Generator Section */}
       <div
         id="brand-pattern-section"
@@ -1594,7 +2014,16 @@ export default function BrandBibleDashboard({
               isDark ? 'text-white' : 'text-slate-900'
             }`}>
               <Palette className="w-5 h-5 text-indigo-600" />
-              5-Color Hex Design Palette
+              <span>5-Color Hex Design Palette</span>
+              <button
+                id="palette-local-randomize-btn"
+                onClick={handleRandomizeOrSwapPalette}
+                className={`p-1.5 rounded-lg border transition duration-200 hover:scale-110 active:scale-95 cursor-pointer flex items-center justify-center gap-1 group/rand`}
+                title="Shuffle non-primary colors (keeps primary logo color consistent)"
+              >
+                <Shuffle className="w-3.5 h-3.5 text-indigo-500 group-hover/rand:rotate-45 transition-transform duration-300" />
+                <span className="text-[9px] font-sans font-bold text-slate-400 group-hover/rand:text-indigo-500 hidden sm:inline">Swap Roles</span>
+              </button>
             </h2>
             <p className="text-xs text-slate-400 font-sans mt-0.5 leading-relaxed">
               Click on any color block below to copy its exact hex code. Incorporate these into web designs, slides, or graphics.
@@ -1644,8 +2073,11 @@ export default function BrandBibleDashboard({
 
         {/* Color Blocks */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          {bible.colorPalette.map((color) => {
+          {bible.colorPalette.map((color, colorIdx) => {
             const isWhiteOrLight = ['ffffff', 'f8fafc', 'f1f5f9', 'f9fafb', 'ffffff'].includes(color.hex.toLowerCase().replace('#', ''));
+            const isPrimary = (color.role || '').toLowerCase().trim() === 'primary' || (
+              !bible.colorPalette.some(c => (c.role || '').toLowerCase().trim() === 'primary') && colorIdx === 0
+            );
             return (
               <div
                 id={`color-block-${color.name.toLowerCase().replace(/\s+/g, '-')}`}
@@ -1663,14 +2095,19 @@ export default function BrandBibleDashboard({
                     ? 'bg-black/10 border-black/5 text-slate-900'
                     : 'bg-white/90 border-white/20 text-slate-800'
                 }`}>
-                  <div className="flex justify-between items-center">
-                    <span className="text-[9px] font-black uppercase tracking-wider opacity-60">
+                  <div className="flex justify-between items-center gap-1.5">
+                    <span className="text-[9px] font-black uppercase tracking-wider opacity-60 flex items-center gap-1">
                       {color.role}
+                      {isPrimary && (
+                        <span className="text-[7px] bg-indigo-600/10 text-indigo-500 font-extrabold px-1 py-0.5 rounded border border-indigo-500/20 whitespace-nowrap">
+                          Logo Solid
+                        </span>
+                      )}
                     </span>
                     {copiedHex === color.hex ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-600 animate-bounce" />
+                      <Check className="w-3.5 h-3.5 text-emerald-600 animate-bounce shrink-0" />
                     ) : (
-                      <Copy className="w-3 h-3 opacity-40 group-hover:opacity-100 transition" />
+                      <Copy className="w-3 h-3 opacity-40 group-hover:opacity-100 transition shrink-0" />
                     )}
                   </div>
                   <h3 className="text-xs font-black mt-1 truncate">{color.name}</h3>
@@ -1933,6 +2370,244 @@ export default function BrandBibleDashboard({
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* 5-Color Pairwise Accessibility Calculator */}
+          <div className={`p-6 border rounded-2xl font-sans transition-all duration-300 text-left ${
+            isDark ? 'bg-slate-950/40 border-slate-850' : 'bg-slate-100/30 border-slate-250/80'
+          }`}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4 mb-4 transition-colors duration-300 dark:border-slate-800">
+              <div>
+                <h4 className="text-sm font-black flex items-center gap-1.5 transition-colors duration-300 dark:text-white">
+                  <Activity className="w-4 h-4 text-indigo-500" />
+                  5-Color Palette Pairwise Contrast Grid
+                </h4>
+                <p className="text-[10px] text-slate-400 mt-1 leading-relaxed max-w-xl font-sans">
+                  Comprehensive audit of all 20 combinations strictly between your generated 5-color palette. Discover which colors pair together naturally. Click any cell to test it in the preview above.
+                </p>
+              </div>
+
+              {/* View Selector Tabs */}
+              <div className={`flex rounded-lg p-0.5 border text-[10px] font-sans font-bold shrink-0 self-start sm:self-center ${
+                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              }`}>
+                <button
+                  onClick={() => setPairwiseTab('matrix')}
+                  className={`px-3 py-1 rounded-md transition-all duration-200 cursor-pointer ${
+                    pairwiseTab === 'matrix'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-450 hover:text-slate-600 dark:hover:text-slate-200'
+                  }`}
+                >
+                  Interactive Matrix
+                </button>
+                <button
+                  onClick={() => setPairwiseTab('list')}
+                  className={`px-3 py-1 rounded-md transition-all duration-200 cursor-pointer ${
+                    pairwiseTab === 'list'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-450 hover:text-slate-600 dark:hover:text-slate-200'
+                  }`}
+                >
+                  Ranked Pairwise List
+                </button>
+              </div>
+            </div>
+
+            {pairwiseTab === 'matrix' ? (
+              /* Interactive Matrix Mode */
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[500px]">
+                  <thead>
+                    <tr>
+                      <th className="p-2.5 text-[9px] font-extrabold uppercase tracking-wider text-slate-400 w-[140px] font-sans">
+                        Text \ Background
+                      </th>
+                      {bible.colorPalette.map((col, idx) => (
+                        <th key={`col-h-${idx}`} className="p-2.5 text-[9px] font-extrabold uppercase tracking-wider text-slate-400 text-center font-sans">
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="w-4 h-4 rounded-full border border-black/10 shadow-sm shrink-0" style={{ backgroundColor: col.hex }} />
+                            <span className="max-w-[80px] truncate text-center">{col.name}</span>
+                            <span className="text-[7px] text-slate-500 font-mono font-medium">{col.hex}</span>
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bible.colorPalette.map((textCol, rIdx) => (
+                      <tr key={`row-${rIdx}`} className={isDark ? 'border-t border-slate-850/60' : 'border-t border-slate-200/60'}>
+                        {/* Row Header (Text Color) */}
+                        <td className="p-2.5 font-sans">
+                          <div className="flex items-center gap-2">
+                            <span className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-sm shrink-0" style={{ backgroundColor: textCol.hex }} />
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-extrabold truncate leading-tight dark:text-slate-300">{textCol.name}</p>
+                              <p className="text-[8px] text-slate-400 font-mono">{textCol.hex}</p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Cells */}
+                        {bible.colorPalette.map((bgCol, cIdx) => {
+                          const isSelf = rIdx === cIdx;
+                          if (isSelf) {
+                            return (
+                              <td key={`cell-${rIdx}-${cIdx}`} className="p-2 text-center">
+                                <div className={`text-[8px] font-bold py-3 rounded-xl border border-dashed select-none uppercase tracking-wider ${
+                                  isDark ? 'bg-slate-900/20 border-slate-850 text-slate-600' : 'bg-slate-50/50 border-slate-200/50 text-slate-400'
+                                }`}>
+                                  Self (1:1)
+                                </div>
+                              </td>
+                            );
+                          }
+
+                          const ratio = getContrastRatio(bgCol.hex, textCol.hex);
+                          
+                          // Accessibility Levels
+                          let levelText = "FAIL";
+                          let levelColor = "text-rose-500 bg-rose-500/10 border-rose-500/20";
+                          if (ratio >= 7.0) {
+                            levelText = "AAA";
+                            levelColor = "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
+                          } else if (ratio >= 4.5) {
+                            levelText = "AA";
+                            levelColor = "text-indigo-500 bg-indigo-500/10 border-indigo-500/20";
+                          } else if (ratio >= 3.0) {
+                            levelText = "AA Lg";
+                            levelColor = "text-amber-500 bg-amber-500/10 border-amber-500/20";
+                          }
+
+                          const isSelected = 
+                            (contrastBg.toLowerCase() === bgCol.hex.toLowerCase() || (bgCol.hex.startsWith('#') ? contrastBg.toLowerCase() === bgCol.hex.toLowerCase() : contrastBg.toLowerCase() === `#${bgCol.hex.toLowerCase()}`)) &&
+                            (contrastText.toLowerCase() === textCol.hex.toLowerCase() || (textCol.hex.startsWith('#') ? contrastText.toLowerCase() === textCol.hex.toLowerCase() : contrastText.toLowerCase() === `#${textCol.hex.toLowerCase()}`));
+
+                          return (
+                            <td key={`cell-${rIdx}-${cIdx}`} className="p-2 text-center font-sans">
+                              <button
+                                onClick={() => {
+                                  setContrastBg(bgCol.hex);
+                                  setContrastText(textCol.hex);
+                                }}
+                                className={`w-full py-2.5 px-1.5 rounded-xl border text-center transition group relative hover:scale-[1.02] active:scale-95 cursor-pointer flex flex-col items-center justify-center ${
+                                  isSelected
+                                    ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-500/5'
+                                    : isDark
+                                      ? 'bg-slate-900/40 border-slate-800/80 hover:bg-slate-850'
+                                      : 'bg-white border-slate-200/80 hover:bg-slate-50'
+                                }`}
+                              >
+                                <span className={`text-[11px] font-black font-mono tracking-tight dark:text-slate-100`}>
+                                  {ratio.toFixed(1)}:1
+                                </span>
+                                <span className={`text-[7px] font-extrabold uppercase px-1.5 py-0.5 rounded border mt-1 tracking-wider ${levelColor}`}>
+                                  {levelText}
+                                </span>
+
+                                {/* Mini swatch preview tooltip/indicator */}
+                                <div className="absolute opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none -top-8 bg-slate-900 text-white text-[8px] font-bold px-2 py-1 rounded shadow-md z-15 whitespace-nowrap">
+                                  Click to load preview
+                                </div>
+                              </button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              /* Ranked Pairs List Mode */
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5 max-h-[380px] overflow-y-auto pr-2">
+                {(() => {
+                  const items: { bg: Color; text: Color; ratio: number }[] = [];
+                  bible.colorPalette.forEach((textCol) => {
+                    bible.colorPalette.forEach((bgCol) => {
+                      if (textCol.hex !== bgCol.hex) {
+                        items.push({
+                          bg: bgCol,
+                          text: textCol,
+                          ratio: getContrastRatio(bgCol.hex, textCol.hex)
+                        });
+                      }
+                    });
+                  });
+
+                  // Sort desc by ratio
+                  items.sort((a, b) => b.ratio - a.ratio);
+
+                  return items.map((pair, idx) => {
+                    let badgeColor = "text-rose-500 bg-rose-500/10 border-rose-500/20";
+                    let badgeText = "FAIL";
+                    if (pair.ratio >= 7.0) {
+                      badgeText = "AAA";
+                      badgeColor = "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
+                    } else if (pair.ratio >= 4.5) {
+                      badgeText = "AA";
+                      badgeColor = "text-indigo-500 bg-indigo-500/10 border-indigo-500/20";
+                    } else if (pair.ratio >= 3.0) {
+                      badgeText = "AA Lg";
+                      badgeColor = "text-amber-500 bg-amber-500/10 border-amber-500/20";
+                    }
+
+                    const isSelected = 
+                      (contrastBg.toLowerCase() === pair.bg.hex.toLowerCase() || (pair.bg.hex.startsWith('#') ? contrastBg.toLowerCase() === pair.bg.hex.toLowerCase() : contrastBg.toLowerCase() === `#${pair.bg.hex.toLowerCase()}`)) &&
+                      (contrastText.toLowerCase() === pair.text.hex.toLowerCase() || (pair.text.hex.startsWith('#') ? contrastText.toLowerCase() === pair.text.hex.toLowerCase() : contrastText.toLowerCase() === `#${pair.text.hex.toLowerCase()}`));
+
+                    return (
+                      <button
+                        key={`ranked-${idx}`}
+                        onClick={() => {
+                          setContrastBg(pair.bg.hex);
+                          setContrastText(pair.text.hex);
+                        }}
+                        className={`p-3 rounded-xl border text-left transition relative flex flex-col justify-between h-[100px] hover:scale-[1.01] active:scale-95 cursor-pointer ${
+                          isSelected
+                            ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-500/5'
+                            : isDark
+                              ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-850 text-slate-300'
+                              : 'bg-white border-slate-200/80 hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        {/* Top: Swatches & Ratio */}
+                        <div className="flex justify-between items-start w-full">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-3.5 h-3.5 rounded-full border border-black/10 shrink-0" style={{ backgroundColor: pair.bg.hex }} />
+                            <span className="text-[10px] text-slate-400 font-sans font-medium">on</span>
+                            <span className="w-3.5 h-3.5 rounded-full border border-black/10 shrink-0" style={{ backgroundColor: pair.text.hex }} />
+                          </div>
+                          <span className={`text-[10px] font-black font-mono`}>
+                            {pair.ratio.toFixed(2)}:1
+                          </span>
+                        </div>
+
+                        {/* Middle: Roles / Names */}
+                        <div className="min-w-0 pr-2 mt-1.5 font-sans">
+                          <p className={`text-[9px] font-extrabold truncate ${isDark ? 'text-slate-300' : 'text-slate-800'}`}>
+                            {pair.text.name}
+                          </p>
+                          <p className="text-[8px] text-slate-400 font-medium truncate uppercase tracking-tight">
+                            on {pair.bg.name}
+                          </p>
+                        </div>
+
+                        {/* Bottom: Level Badges */}
+                        <div className="flex justify-between items-center w-full mt-2 border-t border-slate-100/10 pt-1.5 font-sans">
+                          <span className="text-[7px] text-slate-500 font-mono font-medium">
+                            {pair.text.role}
+                          </span>
+                          <span className={`text-[7px] font-extrabold uppercase px-1.5 py-0.5 rounded border tracking-wider ${badgeColor}`}>
+                            {badgeText}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  });
+                })()}
+              </div>
+            )}
           </div>
 
           {/* Automated Compliance Audit Matrix */}

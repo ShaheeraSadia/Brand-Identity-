@@ -40,6 +40,14 @@ export interface BrandFavicon {
   svgMarkup: string;
 }
 
+export interface BrandVoice {
+  tone: string; // e.g. "Authoritative, clear, and educational yet highly empathetic."
+  personalityKeywords: string[]; // e.g. ["Transparent", "Uplifting", "Confident"]
+  doVoiceRules: string[]; // e.g. ["Use active voice", "Keep sentences punchy"]
+  dontVoiceRules: string[]; // e.g. ["Don't use salesy hyperbole", "Don't sound indifferent"]
+  samplePhrases: string[]; // e.g. ["We're in this together.", "Making complex simple."]
+}
+
 export interface BrandBible {
   id: string;
   companyName: string;
@@ -47,7 +55,7 @@ export interface BrandBible {
   industry: string;
   targetAudience: string;
   brandKeywords: string[];
-  brandVoice: string;
+  brandVoice: string | BrandVoice;
   logoPrompt: string; // Prompt used to generate the logo
   primaryLogo?: string; // base64 data URL
   previousLogos?: string[]; // list of all previously generated logos
