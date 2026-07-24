@@ -40,12 +40,19 @@ export interface BrandFavicon {
   svgMarkup: string;
 }
 
+export interface VoiceMetric {
+  attribute: string;
+  value: number; // 0 to 100
+  description?: string;
+}
+
 export interface BrandVoice {
   tone: string; // e.g. "Authoritative, clear, and educational yet highly empathetic."
   personalityKeywords: string[]; // e.g. ["Transparent", "Uplifting", "Confident"]
   doVoiceRules: string[]; // e.g. ["Use active voice", "Keep sentences punchy"]
   dontVoiceRules: string[]; // e.g. ["Don't use salesy hyperbole", "Don't sound indifferent"]
   samplePhrases: string[]; // e.g. ["We're in this together.", "Making complex simple."]
+  metrics?: VoiceMetric[];
 }
 
 export interface BrandBible {

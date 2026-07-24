@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { BrandBible, Color, BrandArchetype, BrandPattern, BrandFavicon } from '../types';
-import { Palette, Type, CheckCircle, XCircle, Copy, Check, Download, RefreshCw, FileImage, ShieldCheck, AlignLeft, Eye, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Shuffle, History, Compass, Sparkles, Layers, Grid, Globe, Activity, ThumbsUp, BarChart3, TrendingUp } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import { BrandBible, Color, BrandArchetype, BrandPattern, BrandFavicon, VoiceMetric } from '../types';
+import { Palette, Type, CheckCircle, XCircle, Copy, Check, Download, RefreshCw, FileImage, ShieldCheck, AlignLeft, Eye, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Shuffle, History, Compass, Sparkles, Layers, Grid, Globe, Activity, ThumbsUp, BarChart3, TrendingUp, FileJson, FileText, ChevronDown, Volume2, Sliders, MessageSquare, Code2, Target, Wand2, Bot, Zap, Share2, Lightbulb, Megaphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ResponsiveContainer,
@@ -117,6 +118,10 @@ export default function BrandBibleDashboard({
   const [showPromptEditor, setShowPromptEditor] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [toast, setToast] = useState<{ message: string; hex: string } | null>(null);
+
+  const [logoAspectRatio, setLogoAspectRatio] = useState<'standard' | 'square'>('standard');
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const [isLogoHistoryOpen, setIsLogoHistoryOpen] = useState(false);
 
@@ -262,11 +267,536 @@ export default function BrandBibleDashboard({
     }
   };
 
+  // Brand Voice Spider Chart metrics logic
+  const deriveDefaultVoiceMetrics = (brandBible: BrandBible): VoiceMetric[] => {
+    if (typeof brandBible.brandVoice === 'object' && brandBible.brandVoice.metrics && brandBible.brandVoice.metrics.length >= 5) {
+      return brandBible.brandVoice.metrics;
+    }
+
+    const voiceObj = typeof brandBible.brandVoice === 'object' ? brandBible.brandVoice : null;
+    const toneText = (voiceObj?.tone || (typeof brandBible.brandVoice === 'string' ? brandBible.brandVoice : '')).toLowerCase();
+    const keywords = (voiceObj?.personalityKeywords || brandBible.brandKeywords || []).map(k => k.toLowerCase()).join(' ');
+    const fullText = `${toneText} ${keywords} ${brandBible.companyName.toLowerCase()} ${brandBible.industry.toLowerCase()}`;
+
+    const getScore = (attrName: string, positiveTerms: string[], defaultBase: number) => {
+      let score = defaultBase;
+      positiveTerms.forEach(term => {
+        if (fullText.includes(term)) score += 10;
+      });
+      let hash = 0;
+      for (let i = 0; i < attrName.length; i++) {
+        hash += attrName.charCodeAt(i) * (i + 1);
+      }
+      for (let i = 0; i < fullText.length; i++) {
+        hash += fullText.charCodeAt(i);
+      }
+      score = score + (hash % 15);
+      return Math.min(98, Math.max(35, score));
+    };
+
+    return [
+      {
+        attribute: 'Formality',
+        value: getScore('Formality', ['formal', 'corporate', 'professional', 'authoritative', 'premium', 'academic', 'expert'], 65),
+        description: 'Structured, professional & refined tone'
+      },
+      {
+        attribute: 'Warmth',
+        value: getScore('Warmth', ['warm', 'empathetic', 'friendly', 'caring', 'supportive', 'compassionate', 'community'], 72),
+        description: 'Empathy, friendliness & human connection'
+      },
+      {
+        attribute: 'Authority',
+        value: getScore('Authority', ['authoritative', 'confident', 'expert', 'leader', 'trusted', 'secure', 'proven'], 82),
+        description: 'Expertise, trust & confidence'
+      },
+      {
+        attribute: 'Energy',
+        value: getScore('Energy', ['energetic', 'dynamic', 'uplifting', 'passionate', 'vibrant', 'exciting', 'bold'], 75),
+        description: 'Passionate & high-momentum expression'
+      },
+      {
+        attribute: 'Boldness',
+        value: getScore('Boldness', ['bold', 'disruptive', 'innovative', 'cutting-edge', 'pioneering', 'fearless'], 70),
+        description: 'Trailblazing & provocative stance'
+      },
+      {
+        attribute: 'Clarity',
+        value: getScore('Clarity', ['clear', 'concise', 'direct', 'simple', 'transparent', 'punchy', 'accessible'], 86),
+        description: 'Concise, direct & accessible copy'
+      },
+      {
+        attribute: 'Playfulness',
+        value: getScore('Playfulness', ['playful', 'witty', 'humorous', 'fun', 'quirky', 'creative', 'casual'], 52),
+        description: 'Witty, lighthearted & creative humor'
+      }
+    ];
+  };
+
+  const [voiceMetrics, setVoiceMetrics] = useState<VoiceMetric[]>(() => deriveDefaultVoiceMetrics(bible));
+
+  useEffect(() => {
+    setVoiceMetrics(deriveDefaultVoiceMetrics(bible));
+  }, [bible.id, bible.brandVoice]);
+
+  const handleVoiceMetricChange = (idx: number, newValue: number) => {
+    const updated = [...voiceMetrics];
+    updated[idx] = { ...updated[idx], value: newValue };
+    setVoiceMetrics(updated);
+  };
+
+  const handleResetVoiceMetrics = () => {
+    setVoiceMetrics(deriveDefaultVoiceMetrics(bible));
+  };
+
+  const handleApplyVoicePreset = (preset: 'corporate' | 'startup' | 'warm' | 'disruptive') => {
+    let updated = [...voiceMetrics];
+    if (preset === 'corporate') {
+      updated = updated.map(m => {
+        if (m.attribute === 'Formality') return { ...m, value: 92 };
+        if (m.attribute === 'Authority') return { ...m, value: 95 };
+        if (m.attribute === 'Clarity') return { ...m, value: 88 };
+        if (m.attribute === 'Playfulness') return { ...m, value: 30 };
+        if (m.attribute === 'Boldness') return { ...m, value: 60 };
+        return m;
+      });
+    } else if (preset === 'startup') {
+      updated = updated.map(m => {
+        if (m.attribute === 'Boldness') return { ...m, value: 94 };
+        if (m.attribute === 'Energy') return { ...m, value: 90 };
+        if (m.attribute === 'Formality') return { ...m, value: 45 };
+        if (m.attribute === 'Playfulness') return { ...m, value: 75 };
+        return m;
+      });
+    } else if (preset === 'warm') {
+      updated = updated.map(m => {
+        if (m.attribute === 'Warmth') return { ...m, value: 96 };
+        if (m.attribute === 'Clarity') return { ...m, value: 90 };
+        if (m.attribute === 'Formality') return { ...m, value: 50 };
+        if (m.attribute === 'Playfulness') return { ...m, value: 68 };
+        return m;
+      });
+    } else if (preset === 'disruptive') {
+      updated = updated.map(m => {
+        if (m.attribute === 'Boldness') return { ...m, value: 98 };
+        if (m.attribute === 'Energy') return { ...m, value: 92 };
+        if (m.attribute === 'Formality') return { ...m, value: 35 };
+        if (m.attribute === 'Playfulness') return { ...m, value: 82 };
+        return m;
+      });
+    }
+    setVoiceMetrics(updated);
+  };
+
   // Pattern states & generation
   const [isGeneratingPattern, setIsGeneratingPattern] = useState(false);
   const [selectedPatternStyle, setSelectedPatternStyle] = useState('Modern Minimal Grid');
   const [patternOverlayMode, setPatternOverlayMode] = useState<'light' | 'dark' | 'color'>('light');
   const [isPatternCopied, setIsPatternCopied] = useState(false);
+
+  // Mission-Driven Pattern Visualizer States
+  const [missionPatternMotif, setMissionPatternMotif] = useState<'mission-grid' | 'diamond-emblem' | 'radiant-rings' | 'organic-waves' | 'typography-geometry'>('mission-grid');
+  const [missionPatternTileSize, setMissionPatternTileSize] = useState<number>(64);
+  const [missionPatternOpacity, setMissionPatternOpacity] = useState<number>(0.65);
+  const [missionPatternBgMode, setMissionPatternBgMode] = useState<'light' | 'dark' | 'brand'>('light');
+  const [isCopiedMissionPatternSvg, setIsCopiedMissionPatternSvg] = useState<boolean>(false);
+
+  // AI Marketing Content Prompt Templates States
+  const [selectedPromptCategory, setSelectedPromptCategory] = useState<'about' | 'product' | 'social' | 'email' | 'tagline' | 'ad'>('about');
+  const [promptCustomFeature, setPromptCustomFeature] = useState<string>('');
+  const [promptCustomAudience, setPromptCustomAudience] = useState<string>('');
+  const [promptViewMode, setPromptViewMode] = useState<'prompt' | 'sample'>('prompt');
+  const [isCopiedPromptText, setIsCopiedPromptText] = useState<boolean>(false);
+  const [isCopiedSampleText, setIsCopiedSampleText] = useState<boolean>(false);
+
+  const getTailoredMarketingPrompt = (category: 'about' | 'product' | 'social' | 'email' | 'tagline' | 'ad') => {
+    const comp = bible.companyName || 'Our Brand';
+    const ind = bible.industry || 'Technology';
+    const aud = promptCustomAudience.trim() || bible.targetAudience || 'Modern professionals & decision makers';
+    const feat = promptCustomFeature.trim() || `${comp} Flagship Solution`;
+    const mission = bible.mission || 'To empower people through purpose-driven, innovative design.';
+
+    const voiceObj = typeof bible.brandVoice === 'object' ? bible.brandVoice : null;
+    const toneText = voiceObj?.tone || (typeof bible.brandVoice === 'string' ? bible.brandVoice : 'Professional, authentic, and forward-looking');
+    const keywords = (voiceObj?.personalityKeywords || bible.brandKeywords || []).join(', ') || 'innovative, reliable, visionary';
+
+    const metricsSummary = voiceMetrics.map(m => `• ${m.attribute}: ${m.value}/100 (${m.description || ''})`).join('\n');
+    const getMetricVal = (attr: string) => voiceMetrics.find(m => m.attribute === attr)?.value || 70;
+
+    let promptText = '';
+    let sampleDraft = '';
+
+    if (category === 'about') {
+      promptText = `Act as an expert brand strategist and copywriter for ${comp}, operating in the ${ind} industry.
+Write a compelling, high-converting 'About Us' page copy tailored for our target audience: "${aud}".
+
+# BRAND IDENTITY CONSTRAINTS:
+- Company Name: ${comp}
+- Industry / Niche: ${ind}
+- Mission Statement: "${mission}"
+- Core Tone of Voice: ${toneText}
+- Personality Keywords: ${keywords}
+
+# BRAND VOICE MATRIX SCORES (Adhere strictly to these balance levels):
+${metricsSummary}
+
+# COPY STRUCTURE REQUIRED:
+1. High-Impact Headline & Subtitle reflecting Formality (${getMetricVal('Formality')}/100) and Warmth (${getMetricVal('Warmth')}/100).
+2. The Origin Story & Vision (2 short, punchy paragraphs).
+3. Core Values Bullet Points (3 points with bold title lead-ins).
+4. Closing Call-to-Action matching our Boldness level (${getMetricVal('Boldness')}/100).`;
+
+      sampleDraft = `ABOUT US: ${comp.toUpperCase()}
+
+[HERO HEADLINE]
+"Redefining the Future of ${ind} for ${aud}."
+
+[OUR STORY]
+At ${comp}, we believe true leadership in ${ind} requires both uncompromising clarity and relentless purpose. Founded to bridge critical industry gaps, our mission is simple: ${mission}.
+
+We bring together ${keywords} to build solutions that remove friction and empower teams to reach their highest potential.
+
+[OUR CORE VALUES]
+• Precision & Clarity (${getMetricVal('Clarity')}/100): We eliminate unnecessary complexity to focus strictly on high-value outcomes.
+• Empathetic Vision (${getMetricVal('Warmth')}/100): Every workflow we design starts with deep respect for user experience and trust.
+• Bold Innovation (${getMetricVal('Boldness')}/100): We don't settle for incremental gains—we establish new benchmarks in ${ind}.
+
+[CALL TO ACTION]
+Ready to experience the next evolution in ${ind}? Join ${comp} and transform your workflow today.`;
+    } else if (category === 'product') {
+      promptText = `Write a high-converting product description for "${feat}" by ${comp}.
+
+# PRODUCT & AUDIENCE CONTEXT:
+- Feature / Offering: ${feat}
+- Target Audience: ${aud}
+- Industry: ${ind}
+
+# BRAND VOICE MATRIX ALIGNMENT:
+- Core Tone: ${toneText}
+- Authority Level: ${getMetricVal('Authority')}/100
+- Energy Rating: ${getMetricVal('Energy')}/100
+- Clarity Score: ${getMetricVal('Clarity')}/100
+- Keywords: ${keywords}
+
+# OUTPUT REQUIREMENTS:
+1. Attention-Grabbing Hook (1 sentence).
+2. 3 Benefit-Driven Bullet Points (Focusing on ROI & value over technical features).
+3. Ideal Use Case Scenario for ${aud}.
+4. Direct Call-to-Action with a recommended button label.`;
+
+      sampleDraft = `PRODUCT FEATURE: ${feat}
+
+[THE HOOK]
+"Unlock effortless performance with ${feat}—engineered by ${comp} specifically for ${aud}."
+
+[KEY BENEFITS]
+• Intelligent Efficiency: Streamline your core operations with automated precision that saves hours every week.
+• Authority & Reliability (${getMetricVal('Authority')}/100): Backed by ${comp}'s proven track record and industry expertise in ${ind}.
+• Purpose-Built for ${aud}: Tailored to address the exact daily demands and pain points of your workflow.
+
+[IDEAL USE CASE]
+Perfect for ${aud} looking for a seamless, high-performance solution without steep learning curves.
+
+[CALL TO ACTION]
+Discover ${feat} Today →`;
+    } else if (category === 'social') {
+      promptText = `Draft 3 engaging social media launch posts for ${comp} introducing "${feat}".
+
+# PLATFORM VARIATIONS REQUIRED:
+1. LinkedIn (Professional, authoritative tone - Formality ${getMetricVal('Formality')}/100)
+2. Twitter / X (Short, punchy & high energy - Energy ${getMetricVal('Energy')}/100)
+3. Instagram / Community (Warm, visual & conversational - Playfulness ${getMetricVal('Playfulness')}/100)
+
+# BRAND VOICE PARAMETERS:
+- Tone of Voice: ${toneText}
+- Target Audience: ${aud}
+- Personality Keywords: ${keywords}
+
+Include relevant hashtags, strong opening hooks, and engaging call-to-action questions to drive community replies.`;
+
+      sampleDraft = `SOCIAL MEDIA ANNOUNCEMENTS FOR ${comp.toUpperCase()}
+
+[LINKEDIN POST]
+We are thrilled to officially launch ${feat}! 🚀
+
+In today's fast-moving ${ind} landscape, ${aud} need tools that deliver both speed and reliability. That's why we built ${feat}—to help you ${mission.toLowerCase()}.
+
+Key Highlights:
+✓ Engineered for speed, stability & precision
+✓ Tailored specifically for ${aud}
+✓ Powered by ${comp}'s commitment to quality
+
+How is your team tackling this challenge today? Drop a line in the comments! 👇
+#${comp.replace(/\s+/g, '')} #${ind.replace(/\s+/g, '')} #Innovation
+
+---
+
+[TWITTER / X POST]
+Big news! ${feat} by ${comp} is officially live. ⚡
+
+Built for ${aud} who demand clarity, speed, and real performance in ${ind}.
+
+Try it today: [Link]
+#${ind.replace(/\s+/g, '')} #${comp.replace(/\s+/g, '')}
+
+---
+
+[INSTAGRAM / COMMUNITY POST]
+Say hello to ${feat} 👋✨
+
+We built this with one clear mission: ${mission}. Whether you're upgrading your current stack or starting fresh, ${comp} has you covered.
+
+Drop a 🔥 in the comments if you're ready to level up!
+#BrandLaunch #${comp.replace(/\s+/g, '')}`;
+    } else if (category === 'email') {
+      promptText = `Compose a customer outreach launch email for ${comp}.
+
+# CAMPAIGN CONTEXT:
+- Email Topic: Introducing ${feat}
+- Target Audience: ${aud}
+- Brand Voice Tone: ${toneText}
+- Warmth Score: ${getMetricVal('Warmth')}/100 | Authority Score: ${getMetricVal('Authority')}/100
+
+# DELIVERABLES:
+1. 3 Subject Line Options (1 curiosity hook, 1 value-driven, 1 warm & personal).
+2. Preview Text / Preheader line.
+3. Main Email Body Copy (Opening story -> Pain point -> Introducing ${feat} -> Value proof -> CTA Button).`;
+
+      sampleDraft = `EMAIL NEWSLETTER CAMPAIGN: ${comp.toUpperCase()}
+
+SUBJECT LINE OPTIONS:
+1. [Curiosity] Something exciting just arrived at ${comp}...
+2. [Value-Driven] Meet ${feat}: Designed for ${aud}
+3. [Warm & Personal] A quick note on how we're upgrading ${ind}
+
+PREHEADER TEXT:
+Discover how ${feat} delivers next-level efficiency for ${aud}.
+
+---
+
+Hi [First Name],
+
+At ${comp}, we are constantly looking for ways to support ${aud} in mastering ${ind}.
+
+We know how frustrating it is when outdated tools slow down your progress. That's why we created ${feat}.
+
+Here is what makes ${feat} a game-changer:
+• Designed for seamless integration into your daily routine.
+• Anchored in our core mission: ${mission}.
+• Built with the clarity and precision you expect from ${comp}.
+
+We'd love for you to be among the first to experience it in action.
+
+[ BUTTON: Explore ${feat} Now ]
+
+Warm regards,
+The ${comp} Team`;
+    } else if (category === 'tagline') {
+      promptText = `Generate 10 distinct, memorable brand taglines and slogan options for ${comp} in the ${ind} space.
+
+# BRAND MATRIX ATTRIBUTES:
+- Primary Tone: ${toneText}
+- Authority: ${getMetricVal('Authority')}/100 | Boldness: ${getMetricVal('Boldness')}/100 | Clarity: ${getMetricVal('Clarity')}/100
+- Mission Context: ${mission}
+
+# FORMAT INTO 3 CATEGORY BUCKETS:
+1. Modern Minimalist (Short, 2-4 words)
+2. Mission & Value-Driven
+3. Bold & Provocative`;
+
+      sampleDraft = `BRAND TAGLINE & SLOGAN CONCEPTS FOR ${comp.toUpperCase()}
+
+[CATEGORY 1: MODERN MINIMALIST]
+1. "${comp}. Purpose Delivered."
+2. "Clarity in ${ind}."
+3. "Elevate the Standard."
+
+[CATEGORY 2: MISSION & VALUE-DRIVEN]
+4. "Empowering ${aud} with Purpose."
+5. "Where Innovation Meets Precision."
+6. "Built for What Matters Most."
+7. "Driving the Future of ${ind}."
+
+[CATEGORY 3: BOLD & PROVOCATIVE]
+8. "Reinventing ${ind}, One Choice at a Time."
+9. "Don't Just Follow Trends. Set Them with ${comp}."
+10. "The Standard Has Shifted."`;
+    } else {
+      promptText = `Create high-ROI ad copywriting variations for ${comp} running paid campaigns targeting ${aud}.
+
+# AD CAMPAIGN PARAMETERS:
+- Featured Offering: ${feat}
+- Target Audience: ${aud}
+- Primary Tone: ${toneText}
+- Energy Level: ${getMetricVal('Energy')}/100 | Boldness Rating: ${getMetricVal('Boldness')}/100
+
+# DELIVERABLES REQUIRED:
+- 3 Search / Display Headlines (under 30 characters each).
+- 3 Primary Text variations (Short & Punchy, Benefit-First, Social Proof / Authority).
+- Recommended Call-to-Action button labels.`;
+
+      sampleDraft = `AD CAMPAIGN COPY: ${comp.toUpperCase()}
+
+[HEADLINES (Max 30 Chars)]
+1. Upgrade Your ${ind}
+2. Meet ${feat} Today
+3. Built for ${aud}
+
+[PRIMARY TEXT VARIATIONS]
+
+• Variation A (Short & Direct):
+Ready for a smarter way to work? ${comp} introduces ${feat} engineered specifically for ${aud}. Try it today.
+
+• Variation B (Benefit-First):
+Stop settling for friction in your workflow. ${comp} empowers ${aud} to ${mission.toLowerCase()}. See how ${feat} makes the difference.
+
+• Variation C (Authority & Trust):
+Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achieve more. Get started with ${feat}.
+
+[RECOMMENDED CALL-TO-ACTION BUTTONS]
+• "Get Started"
+• "Learn More"
+• "Claim Your Access"`;
+    }
+
+    return { promptText, sampleDraft };
+  };
+
+  const generateMissionPatternSvg = (
+    primaryHex: string,
+    secondaryHex: string,
+    missionText: string,
+    patternMotif: string,
+    tileSize: number,
+    opacity: number
+  ) => {
+    const primary = primaryHex || '#6366f1';
+    const secondary = secondaryHex || '#a855f7';
+    const mission = (missionText || 'To innovate and empower world-class experiences.').trim();
+
+    // Deterministic seed derived from mission text length and character codes
+    let hash = 0;
+    for (let i = 0; i < mission.length; i++) {
+      hash = (hash << 5) - hash + mission.charCodeAt(i);
+      hash |= 0;
+    }
+    const absHash = Math.abs(hash);
+    const strokeWidth = (absHash % 2) + 1.2;
+    const rotation = (absHash % 30) + 15;
+    const circleRadius = 6 + (absHash % 8);
+
+    const viewDim = 60;
+
+    if (patternMotif === 'mission-grid') {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${tileSize}" height="${tileSize}" viewBox="0 0 ${viewDim} ${viewDim}">
+  <rect width="${viewDim}" height="${viewDim}" fill="none"/>
+  <path d="M0 30 H60 M30 0 V60" stroke="${primary}" stroke-width="${strokeWidth}" stroke-opacity="${opacity}" />
+  <circle cx="30" cy="30" r="${circleRadius}" stroke="${primary}" stroke-width="${strokeWidth}" fill="${secondary}" fill-opacity="${opacity * 0.35}" stroke-opacity="${opacity}"/>
+  <circle cx="0" cy="0" r="3.5" fill="${primary}" fill-opacity="${opacity}"/>
+  <circle cx="60" cy="0" r="3.5" fill="${primary}" fill-opacity="${opacity}"/>
+  <circle cx="0" cy="60" r="3.5" fill="${primary}" fill-opacity="${opacity}"/>
+  <circle cx="60" cy="60" r="3.5" fill="${primary}" fill-opacity="${opacity}"/>
+</svg>`;
+    } else if (patternMotif === 'diamond-emblem') {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${tileSize}" height="${tileSize}" viewBox="0 0 ${viewDim} ${viewDim}">
+  <rect width="${viewDim}" height="${viewDim}" fill="none"/>
+  <polygon points="30,4 56,30 30,56 4,30" fill="none" stroke="${primary}" stroke-width="${strokeWidth}" stroke-opacity="${opacity}"/>
+  <polygon points="30,16 44,30 30,44 16,30" fill="${secondary}" fill-opacity="${opacity * 0.25}" stroke="${primary}" stroke-width="1" stroke-opacity="${opacity}"/>
+  <circle cx="30" cy="30" r="3" fill="${primary}" fill-opacity="${opacity}"/>
+  <path d="M0 0 L10 10 M60 0 L50 10 M0 60 L10 50 M60 60 L50 50" stroke="${primary}" stroke-width="1" stroke-opacity="${opacity * 0.5}"/>
+</svg>`;
+    } else if (patternMotif === 'radiant-rings') {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${tileSize}" height="${tileSize}" viewBox="0 0 ${viewDim} ${viewDim}">
+  <rect width="${viewDim}" height="${viewDim}" fill="none"/>
+  <circle cx="30" cy="30" r="26" fill="none" stroke="${primary}" stroke-width="${strokeWidth}" stroke-opacity="${opacity * 0.4}" stroke-dasharray="4 3"/>
+  <circle cx="30" cy="30" r="18" fill="none" stroke="${secondary}" stroke-width="${strokeWidth}" stroke-opacity="${opacity * 0.7}"/>
+  <circle cx="30" cy="30" r="9" fill="${primary}" fill-opacity="${opacity * 0.25}" stroke="${primary}" stroke-width="1.5" stroke-opacity="${opacity}"/>
+  <path d="M15 30 H45 M30 15 V45" stroke="${primary}" stroke-width="1" stroke-opacity="${opacity * 0.5}"/>
+</svg>`;
+    } else if (patternMotif === 'organic-waves') {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${tileSize}" height="${tileSize}" viewBox="0 0 ${viewDim} ${viewDim}">
+  <rect width="${viewDim}" height="${viewDim}" fill="none"/>
+  <path d="M 0,18 Q 15,4 30,18 T 60,18" fill="none" stroke="${primary}" stroke-width="${strokeWidth + 0.5}" stroke-opacity="${opacity}"/>
+  <path d="M 0,38 Q 15,24 30,38 T 60,38" fill="none" stroke="${secondary}" stroke-width="${strokeWidth}" stroke-opacity="${opacity * 0.75}"/>
+  <path d="M 0,58 Q 15,44 30,58 T 60,58" fill="none" stroke="${primary}" stroke-width="1" stroke-opacity="${opacity * 0.4}"/>
+</svg>`;
+    } else {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${tileSize}" height="${tileSize}" viewBox="0 0 ${viewDim} ${viewDim}">
+  <rect width="${viewDim}" height="${viewDim}" fill="none"/>
+  <g transform="rotate(${rotation} 30 30)">
+    <rect x="14" y="14" width="32" height="32" rx="6" fill="${primary}" fill-opacity="${opacity * 0.18}" stroke="${primary}" stroke-width="${strokeWidth}" stroke-opacity="${opacity}"/>
+    <circle cx="30" cy="30" r="7" fill="${secondary}" fill-opacity="${opacity * 0.6}"/>
+  </g>
+  <path d="M0 0 L60 60 M60 0 L0 60" stroke="${primary}" stroke-width="0.75" stroke-opacity="${opacity * 0.3}" stroke-dasharray="3 3"/>
+</svg>`;
+    }
+  };
+
+  const getMissionSvgString = () => {
+    const primaryHex = bible.colorPalette[0]?.hex || '#6366f1';
+    const secondaryHex = bible.colorPalette[1]?.hex || '#a855f7';
+    const missionText = bible.mission || 'To innovate and empower world-class experiences.';
+
+    return generateMissionPatternSvg(
+      primaryHex,
+      secondaryHex,
+      missionText,
+      missionPatternMotif,
+      missionPatternTileSize,
+      missionPatternOpacity
+    );
+  };
+
+  const getMissionPatternStyle = () => {
+    const svgMarkup = getMissionSvgString();
+    const svgDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svgMarkup)}`;
+    return {
+      backgroundImage: `url("${svgDataUrl}")`,
+      backgroundRepeat: 'repeat'
+    };
+  };
+
+  const handleCopyMissionPatternSvg = () => {
+    const svgStr = getMissionSvgString();
+    navigator.clipboard.writeText(svgStr);
+    setIsCopiedMissionPatternSvg(true);
+    setToast({
+      message: "Copied Mission Pattern SVG source!",
+      hex: bible.colorPalette[0]?.hex || '#6366f1'
+    });
+    setTimeout(() => setIsCopiedMissionPatternSvg(false), 2000);
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const handleCopyMissionPatternCss = () => {
+    const svgStr = getMissionSvgString();
+    const svgDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svgStr)}`;
+    const css = `background-image: url("${svgDataUrl}");\nbackground-repeat: repeat;`;
+    navigator.clipboard.writeText(css);
+    setToast({
+      message: "Copied CSS background-image rule!",
+      hex: bible.colorPalette[0]?.hex || '#6366f1'
+    });
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const handleDownloadMissionPatternSvg = () => {
+    const svgStr = getMissionSvgString();
+    const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-mission-pattern.svg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setToast({
+      message: "Downloaded Mission Pattern SVG file!",
+      hex: bible.colorPalette[0]?.hex || '#6366f1'
+    });
+    setTimeout(() => setToast(null), 2500);
+  };
 
   const handleGeneratePattern = async (styleOverride?: string) => {
     setIsGeneratingPattern(true);
@@ -419,6 +949,44 @@ export default function BrandBibleDashboard({
     }, 2500);
   };
 
+  const handleCopyAllHexCodes = () => {
+    const allHexes = bible.colorPalette.map(c => c.hex).join(', ');
+    navigator.clipboard.writeText(allHexes);
+    setToast({
+      message: `Copied all ${bible.colorPalette.length} color HEX codes!`,
+      hex: bible.colorPalette[0]?.hex || '#6366f1'
+    });
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const handleCopyCssVariables = () => {
+    const cssVars = `:root {\n` + bible.colorPalette.map(c => {
+      const varName = `--color-${c.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+      return `  ${varName}: ${c.hex};`;
+    }).join('\n') + `\n}`;
+
+    navigator.clipboard.writeText(cssVars);
+    setToast({
+      message: "Copied palette as CSS Variables!",
+      hex: bible.colorPalette[0]?.hex || '#6366f1'
+    });
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const handleCopyTailwindConfig = () => {
+    const twObj = `// tailwind.config.js\ncolors: {\n` + bible.colorPalette.map(c => {
+      const key = c.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      return `  '${key}': '${c.hex}',`;
+    }).join('\n') + `\n}`;
+
+    navigator.clipboard.writeText(twObj);
+    setToast({
+      message: "Copied palette as Tailwind color object!",
+      hex: bible.colorPalette[0]?.hex || '#6366f1'
+    });
+    setTimeout(() => setToast(null), 2500);
+  };
+
   const handleDownloadLogo = async () => {
     if (!bible.primaryLogo) return;
     try {
@@ -433,6 +1001,220 @@ export default function BrandBibleDashboard({
       console.error(err);
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleDownloadBrandJson = () => {
+    try {
+      const exportData = {
+        companyName: bible.companyName,
+        industry: bible.industry,
+        targetAudience: bible.targetAudience,
+        mission: bible.mission,
+        primaryLogo: bible.primaryLogo,
+        colorPalette: bible.colorPalette,
+        typography: bible.typography,
+        brandVoice: bible.brandVoice,
+        brandKeywords: bible.brandKeywords,
+        doGuidelines: bible.doGuidelines,
+        dontGuidelines: bible.dontGuidelines,
+        favicon: bible.favicon,
+        archetype: bible.archetype,
+        pattern: bible.pattern,
+        generatedAt: new Date().toISOString()
+      };
+
+      const jsonStr = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-brand-kit.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setToast({
+        message: "Downloaded Brand Specification JSON!",
+        hex: bible.colorPalette[0]?.hex || "#6366f1"
+      });
+      setTimeout(() => setToast(null), 2500);
+    } catch (err: any) {
+      console.error("Failed to export JSON:", err);
+      setToast({
+        message: `Failed to download JSON: ${err.message}`,
+        hex: "#ef4444"
+      });
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  const handleDownloadBrandPdf = async () => {
+    try {
+      setIsExportingPdf(true);
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const primaryHex = bible.colorPalette[0]?.hex || '#6366f1';
+      
+      // Header Banner
+      doc.setFillColor(15, 23, 42); // slate-900
+      doc.rect(0, 0, 210, 42, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(22);
+      doc.text(bible.companyName || 'Brand Guidelines', 15, 20);
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(129, 140, 248); // indigo-400
+      doc.text(`BRAND SPECIFICATION BIBLE  •  ${(bible.industry || 'General Sector').toUpperCase()}`, 15, 28);
+      
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(148, 163, 184); // slate-400
+      doc.text(`Target Audience: ${bible.targetAudience || 'Universal'}`, 15, 35);
+
+      let y = 52;
+
+      // Section 1: Primary Mark
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text('1. Primary Brand Mark', 15, y);
+      y += 8;
+
+      if (bible.primaryLogo && bible.primaryLogo.startsWith('data:image')) {
+        try {
+          doc.addImage(bible.primaryLogo, 'PNG', 15, y, 36, 36);
+          y += 42;
+        } catch (err) {
+          doc.setFontSize(9);
+          doc.setFont('helvetica', 'italic');
+          doc.text('[Primary Logo Mark Included]', 15, y);
+          y += 10;
+        }
+      } else {
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(100, 116, 139);
+        doc.text('Primary logo mark pending synthesis.', 15, y);
+        y += 10;
+      }
+
+      // Section 2: Color Palette
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42);
+      doc.text('2. 5-Color Design Palette', 15, y);
+      y += 8;
+
+      if (bible.colorPalette && bible.colorPalette.length > 0) {
+        let xOffset = 15;
+        bible.colorPalette.forEach((col) => {
+          const rgb = hexToRgb(col.hex);
+          if (rgb) {
+            doc.setFillColor(rgb.r, rgb.g, rgb.b);
+          } else {
+            doc.setFillColor(99, 102, 241);
+          }
+          doc.roundedRect(xOffset, y, 32, 18, 2, 2, 'F');
+          doc.setDrawColor(226, 232, 240);
+          doc.roundedRect(xOffset, y, 32, 18, 2, 2, 'S');
+
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(15, 23, 42);
+          doc.text(col.name, xOffset, y + 24);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(100, 116, 139);
+          doc.text(col.hex.toUpperCase(), xOffset, y + 28);
+          doc.text(`Role: ${col.role}`, xOffset, y + 32);
+
+          xOffset += 37;
+        });
+        y += 40;
+      }
+
+      // Section 3: Typography & Font Pairings
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42);
+      doc.text('3. Typography & Font Pairings', 15, y);
+      y += 8;
+
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(15, y, 180, 26, 3, 3, 'FD');
+
+      doc.setFontSize(9.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Header Font: ${bible.typography?.headerFont || 'Playfair Display'}`, 20, y + 7);
+      doc.text(`Body Font: ${bible.typography?.bodyFont || 'Plus Jakarta Sans'}`, 20, y + 14);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Header Usage: ${bible.typography?.headerUsage || 'Primary headings and displays'}  •  Body Usage: ${bible.typography?.bodyUsage || 'Body text and UI controls'}`, 20, y + 21);
+      y += 34;
+
+      // Section 4: Brand Voice
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42);
+      doc.text('4. Verbal Identity & Voice Guidelines', 15, y);
+      y += 8;
+
+      const voiceTone = typeof bible.brandVoice === 'object' ? bible.brandVoice.tone : bible.brandVoice;
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(9.5);
+      doc.setTextColor(51, 65, 85);
+      const splitTone = doc.splitTextToSize(`"${voiceTone || 'Professional, authoritative, and friendly.'}"`, 180);
+      doc.text(splitTone, 15, y);
+      y += (splitTone.length * 5) + 10;
+
+      // Section 5: Mission Statement
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42);
+      doc.text('5. Company Mission', 15, y);
+      y += 8;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105);
+      const splitMission = doc.splitTextToSize(bible.mission || 'To empower users with world-class products.', 180);
+      doc.text(splitMission, 15, y);
+
+      // Footer
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Generated by AI Studio Brand Consultant  •  ${new Date().toLocaleDateString()}`, 15, 285);
+
+      doc.save(`${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-brand-bible.pdf`);
+
+      setToast({
+        message: "Downloaded Brand Specification PDF!",
+        hex: primaryHex
+      });
+      setTimeout(() => setToast(null), 2500);
+    } catch (err: any) {
+      console.error("PDF generation error:", err);
+      setToast({
+        message: `Failed to generate PDF: ${err.message}`,
+        hex: "#ef4444"
+      });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setIsExportingPdf(false);
     }
   };
 
@@ -645,16 +1427,90 @@ export default function BrandBibleDashboard({
                 {bible.mission}
               </p>
             </div>
-            {bible.primaryLogo && (
+            <div className="relative">
               <button
-                id="dashboard-download-logo-btn"
-                onClick={handleDownloadLogo}
+                id="dashboard-download-brand-assets-btn"
+                onClick={() => setShowExportMenu(!showExportMenu)}
                 className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 text-xs font-bold rounded-full flex items-center gap-2 shadow-md transition cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
-                Download Brand Assets
+                <span>Download Brand Kit</span>
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`} />
               </button>
-            )}
+
+              <AnimatePresence>
+                {showExportMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
+                    <motion.div
+                      initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                      className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-2 z-50 text-xs font-sans text-left"
+                    >
+                      <button
+                        id="export-pdf-btn"
+                        onClick={() => {
+                          setShowExportMenu(false);
+                          handleDownloadBrandPdf();
+                        }}
+                        disabled={isExportingPdf}
+                        className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-slate-800 transition flex items-start gap-3 cursor-pointer group"
+                      >
+                        <FileText className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0 group-hover:scale-110 transition" />
+                        <div>
+                          <div className="font-bold text-white flex items-center gap-1.5">
+                            <span>Download PDF Specification</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                            Compiled brand guide with logo, palette swatches & typography.
+                          </p>
+                        </div>
+                      </button>
+
+                      <button
+                        id="export-json-btn"
+                        onClick={() => {
+                          setShowExportMenu(false);
+                          handleDownloadBrandJson();
+                        }}
+                        className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-slate-800 transition flex items-start gap-3 cursor-pointer group"
+                      >
+                        <FileJson className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0 group-hover:scale-110 transition" />
+                        <div>
+                          <div className="font-bold text-white flex items-center gap-1.5">
+                            <span>Download JSON Specification</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                            Raw structured data including base64 logo & hex codes.
+                          </p>
+                        </div>
+                      </button>
+
+                      {bible.primaryLogo && (
+                        <button
+                          id="export-logo-png-btn"
+                          onClick={() => {
+                            setShowExportMenu(false);
+                            handleDownloadLogo();
+                          }}
+                          disabled={downloading}
+                          className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-slate-800 transition flex items-start gap-3 cursor-pointer group border-t border-slate-800/80 mt-1 pt-2.5"
+                        >
+                          <FileImage className="w-4 h-4 text-amber-400 mt-0.5 shrink-0 group-hover:scale-110 transition" />
+                          <div>
+                            <div className="font-bold text-white">Download Logo PNG</div>
+                            <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                              High-resolution primary logo image file.
+                            </p>
+                          </div>
+                        </button>
+                      )}
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 border-t border-slate-800 pt-5 text-xs font-sans">
@@ -699,7 +1555,35 @@ export default function BrandBibleDashboard({
                   High-fidelity graphical vector logo generated on grid space.
                 </p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {/* Aspect Ratio Switcher */}
+                <div className={`flex items-center gap-1 p-1 rounded-full border transition-all ${
+                  isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-100 border-slate-200'
+                }`}>
+                  <button
+                    id="aspect-ratio-standard-btn"
+                    onClick={() => setLogoAspectRatio('standard')}
+                    className={`px-3 py-1 text-[10px] font-sans font-bold rounded-full transition-all cursor-pointer ${
+                      logoAspectRatio === 'standard'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Standard
+                  </button>
+                  <button
+                    id="aspect-ratio-square-btn"
+                    onClick={() => setLogoAspectRatio('square')}
+                    className={`px-3 py-1 text-[10px] font-sans font-bold rounded-full transition-all cursor-pointer ${
+                      logoAspectRatio === 'square'
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Square (1:1)
+                  </button>
+                </div>
+
                 {bible.primaryLogo && (
                   <button
                     id="header-download-logo-btn"
@@ -740,15 +1624,31 @@ export default function BrandBibleDashboard({
                   </div>
                 </div>
               ) : bible.primaryLogo ? (
-                <div className="relative group/logo">
-                  <img
-                    src={bible.primaryLogo}
-                    alt="Primary Brand Logo"
-                    className={`max-h-48 max-w-full object-contain rounded-xl shadow-sm p-3 transition duration-200 group-hover/logo:scale-102 ${
-                      isDark ? 'bg-slate-900 border border-slate-800' : 'bg-white mix-blend-multiply'
-                    }`}
-                    referrerPolicy="no-referrer"
-                  />
+                <div className="relative group/logo flex flex-col items-center">
+                  {logoAspectRatio === 'square' ? (
+                    <div className={`w-52 h-52 aspect-square flex items-center justify-center p-4 rounded-2xl shadow-md transition-all duration-300 relative border ${
+                      isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                    }`}>
+                      <img
+                        src={bible.primaryLogo}
+                        alt="Primary Brand Logo (Square 1:1)"
+                        className="w-full h-full object-contain rounded-lg transition duration-200 group-hover/logo:scale-105"
+                        referrerPolicy="no-referrer"
+                      />
+                      <span className="absolute bottom-2 right-2 text-[8px] font-mono font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-600/10 text-indigo-500 border border-indigo-500/20">
+                        1 : 1
+                      </span>
+                    </div>
+                  ) : (
+                    <img
+                      src={bible.primaryLogo}
+                      alt="Primary Brand Logo"
+                      className={`max-h-48 max-w-full object-contain rounded-xl shadow-sm p-3 transition duration-200 group-hover/logo:scale-102 ${
+                        isDark ? 'bg-slate-900 border border-slate-800' : 'bg-white mix-blend-multiply'
+                      }`}
+                      referrerPolicy="no-referrer"
+                    />
+                  )}
                   {/* Floating Download Button (Permanently visible) */}
                   <button
                     id="floating-download-logo-btn"
@@ -1543,6 +2443,471 @@ export default function BrandBibleDashboard({
         )}
       </div>
 
+      {/* Brand Voice Metrics Spider Chart Section */}
+      <div
+        id="brand-voice-radar-section"
+        className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
+          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+        }`}
+      >
+        <div className={`border-b pb-4 mb-6 transition-colors duration-300 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+          <div>
+            <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block mb-1">03c / Verbal Identity & Voice Radar</span>
+            <h2 className={`text-xl font-black flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
+              isDark ? 'text-white' : 'text-slate-900'
+            }`}>
+              <Volume2 className="w-5 h-5 text-indigo-600" />
+              Brand Voice & Personality Spider Chart
+            </h2>
+            <p className="text-xs text-slate-400 font-sans mt-0.5 leading-relaxed">
+              Spider (radar) chart visualizer mapping tone dimensions across formality, empathy, authority, energy, boldness, clarity, and playfulness.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-1.5 self-start sm:self-auto flex-wrap">
+            <span className="text-[10px] font-bold text-slate-400 mr-1 font-sans hidden md:inline">Presets:</span>
+            <button
+              id="voice-preset-corporate-btn"
+              onClick={() => handleApplyVoicePreset('corporate')}
+              className={`px-3 py-1.5 text-[10px] font-bold rounded-full border transition cursor-pointer ${
+                isDark ? 'bg-slate-950 border-slate-800 text-slate-300 hover:text-white hover:border-indigo-500' : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-indigo-600'
+              }`}
+            >
+              Corporate
+            </button>
+            <button
+              id="voice-preset-startup-btn"
+              onClick={() => handleApplyVoicePreset('startup')}
+              className={`px-3 py-1.5 text-[10px] font-bold rounded-full border transition cursor-pointer ${
+                isDark ? 'bg-slate-950 border-slate-800 text-slate-300 hover:text-white hover:border-indigo-500' : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-indigo-600'
+              }`}
+            >
+              Startup Bold
+            </button>
+            <button
+              id="voice-preset-warm-btn"
+              onClick={() => handleApplyVoicePreset('warm')}
+              className={`px-3 py-1.5 text-[10px] font-bold rounded-full border transition cursor-pointer ${
+                isDark ? 'bg-slate-950 border-slate-800 text-slate-300 hover:text-white hover:border-indigo-500' : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-indigo-600'
+              }`}
+            >
+              Empathetic
+            </button>
+            <button
+              id="voice-preset-disruptive-btn"
+              onClick={() => handleApplyVoicePreset('disruptive')}
+              className={`px-3 py-1.5 text-[10px] font-bold rounded-full border transition cursor-pointer ${
+                isDark ? 'bg-slate-950 border-slate-800 text-slate-300 hover:text-white hover:border-indigo-500' : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-indigo-600'
+              }`}
+            >
+              Disruptive
+            </button>
+            <button
+              id="voice-metrics-reset-btn"
+              onClick={handleResetVoiceMetrics}
+              className={`p-1.5 rounded-full border transition cursor-pointer ${
+                isDark ? 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-indigo-600'
+              }`}
+              title="Reset metrics to defaults"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+          {/* Radar Chart Display */}
+          <div className="lg:col-span-6 flex flex-col items-center justify-center space-y-4">
+            <div className="w-full flex items-center justify-between flex-wrap gap-2">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 font-sans">
+                Tone Attribute Polygon (Spider Map)
+              </span>
+              <div className="flex gap-1.5 flex-wrap">
+                {voiceMetrics
+                  .slice()
+                  .sort((a, b) => b.value - a.value)
+                  .slice(0, 2)
+                  .map(topAttr => (
+                    <span
+                      key={topAttr.attribute}
+                      className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 border border-indigo-500/20"
+                    >
+                      Top: {topAttr.attribute} ({topAttr.value}%)
+                    </span>
+                  ))}
+              </div>
+            </div>
+
+            <div className={`w-full h-[330px] border rounded-2xl flex items-center justify-center relative overflow-hidden p-2 transition-all duration-300 ${
+              isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={voiceMetrics}>
+                  <PolarGrid stroke={isDark ? "#1e293b" : "#cbd5e1"} />
+                  <PolarAngleAxis
+                    dataKey="attribute"
+                    tick={{
+                      fill: isDark ? "#cbd5e1" : "#334155",
+                      fontSize: 10,
+                      fontWeight: 700
+                    }}
+                  />
+                  <PolarRadiusAxis
+                    angle={30}
+                    domain={[0, 100]}
+                    tick={{ fill: isDark ? "#475569" : "#94a3b8", fontSize: 8 }}
+                  />
+                  <Radar
+                    name="Voice Metric Score"
+                    dataKey="value"
+                    stroke="#6366f1"
+                    fill="#6366f1"
+                    fillOpacity={0.45}
+                  />
+                  <ChartTooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const item = payload[0].payload;
+                        return (
+                          <div className={`p-3 rounded-xl shadow-xl border text-xs font-sans ${
+                            isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+                          }`}>
+                            <div className="font-extrabold flex items-center justify-between gap-3 text-indigo-500">
+                              <span>{item.attribute}</span>
+                              <span className="font-mono text-xs">{item.value}/100</span>
+                            </div>
+                            {item.description && (
+                              <p className="text-[10px] text-slate-400 mt-1 max-w-[180px] leading-tight">
+                                {item.description}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className={`w-full p-4 border rounded-2xl text-xs font-sans leading-relaxed ${
+              isDark ? 'bg-slate-950/50 border-slate-850 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+            }`}>
+              <span className="font-extrabold text-indigo-500 block mb-1 uppercase text-[9px] tracking-wider">
+                Verbal Tone Statement
+              </span>
+              <p className="italic">
+                "{typeof bible.brandVoice === 'object' ? bible.brandVoice.tone : (bible.brandVoice || 'Professional, clear, and empathetic tone.')}"
+              </p>
+            </div>
+          </div>
+
+          {/* Interactive Metric Controls & Personality Traits */}
+          <div className="lg:col-span-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 font-sans flex items-center gap-1.5">
+                <Sliders className="w-3.5 h-3.5 text-indigo-500" />
+                Fine-Tune Personality Dimensions
+              </span>
+              <span className="text-[9px] text-slate-400 font-sans">Drag sliders to adjust</span>
+            </div>
+
+            <div className="space-y-3">
+              {voiceMetrics.map((metric, idx) => (
+                <div
+                  key={metric.attribute}
+                  className={`p-3 border rounded-xl transition-all duration-200 ${
+                    isDark ? 'bg-slate-950/60 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-200 hover:border-slate-300 shadow-2xs'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-xs font-bold mb-1.5">
+                    <span className={`font-sans ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+                      {metric.attribute}
+                    </span>
+                    <span className="font-mono text-indigo-500 font-extrabold">{metric.value}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={10}
+                    max={100}
+                    value={metric.value}
+                    onChange={(e) => handleVoiceMetricChange(idx, parseInt(e.target.value, 10))}
+                    className="w-full accent-indigo-600 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg cursor-pointer"
+                  />
+                  {metric.description && (
+                    <p className="text-[10px] text-slate-400 mt-1 truncate">
+                      {metric.description}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Keyword Pills */}
+            {typeof bible.brandVoice === 'object' && bible.brandVoice.personalityKeywords?.length > 0 && (
+              <div className="pt-2">
+                <span className="text-[9px] uppercase font-bold tracking-wider text-slate-400 block mb-2 font-sans">
+                  Associated Personality Keywords
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {bible.brandVoice.personalityKeywords.map((keyword) => (
+                    <span
+                      key={keyword}
+                      className={`text-[9px] font-extrabold uppercase tracking-wider px-2.5 py-1 rounded-lg border ${
+                        isDark ? 'bg-slate-950 border-slate-800 text-indigo-400' : 'bg-indigo-50 border-indigo-100 text-indigo-700'
+                      }`}
+                    >
+                      ✦ {keyword}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* AI Prompt Templates Module for Marketing Content */}
+      <div
+        id="ai-prompt-templates-section"
+        className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
+          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+        }`}
+      >
+        <div className={`border-b pb-4 mb-6 transition-colors duration-300 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block">
+                03c-2 / Verbal Identity & AI Prompt Templates
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 font-mono">
+                Brand-Voice Tailored
+              </span>
+            </div>
+            <h2 className={`text-xl font-black flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
+              isDark ? 'text-white' : 'text-slate-900'
+            }`}>
+              <Bot className="w-5 h-5 text-indigo-500" />
+              AI Marketing Prompt Templates
+            </h2>
+            <p className="text-xs text-slate-400 font-sans mt-1 max-w-2xl">
+              Pre-defined LLM prompts and live copy drafts engineered specifically around your brand voice matrix metrics, target demographic, and tone parameters.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              id="prompt-view-mode-prompt-btn"
+              onClick={() => setPromptViewMode('prompt')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition duration-150 flex items-center gap-1.5 cursor-pointer ${
+                promptViewMode === 'prompt'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : isDark ? 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Code2 className="w-3.5 h-3.5" />
+              AI Prompt Template
+            </button>
+            <button
+              id="prompt-view-mode-sample-btn"
+              onClick={() => setPromptViewMode('sample')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition duration-150 flex items-center gap-1.5 cursor-pointer ${
+                promptViewMode === 'sample'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : isDark ? 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              Sample Draft Output
+            </button>
+          </div>
+        </div>
+
+        {/* Custom Variable Adjusters (Product/Feature & Target Audience) */}
+        <div className={`p-4 rounded-2xl border mb-6 ${
+          isDark ? 'bg-slate-950/60 border-slate-800/80' : 'bg-slate-50 border-slate-200'
+        }`}>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[10px] uppercase font-extrabold tracking-wider text-slate-400 font-sans flex items-center gap-1.5">
+              <Sliders className="w-3.5 h-3.5 text-indigo-500" />
+              Dynamic Context Variables
+            </span>
+            <span className="text-[10px] font-mono font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-md border border-indigo-500/20">
+              Active Voice Tone: {typeof bible.brandVoice === 'object' ? bible.brandVoice.tone : (typeof bible.brandVoice === 'string' ? bible.brandVoice : 'Custom')}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-[11px] font-bold text-slate-400 block mb-1 font-sans">
+                Featured Product / Offering Title
+              </label>
+              <input
+                id="prompt-custom-feature-input"
+                type="text"
+                placeholder={`${bible.companyName} Core Platform`}
+                value={promptCustomFeature}
+                onChange={(e) => setPromptCustomFeature(e.target.value)}
+                className={`w-full px-3 py-2 text-xs rounded-xl border font-semibold font-sans transition focus:outline-none focus:ring-2 focus:ring-indigo-500/20 ${
+                  isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                }`}
+              />
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-slate-400 block mb-1 font-sans">
+                Target Audience Context
+              </label>
+              <input
+                id="prompt-custom-audience-input"
+                type="text"
+                placeholder={bible.targetAudience || "Modern professionals & innovators"}
+                value={promptCustomAudience}
+                onChange={(e) => setPromptCustomAudience(e.target.value)}
+                className={`w-full px-3 py-2 text-xs rounded-xl border font-semibold font-sans transition focus:outline-none focus:ring-2 focus:ring-indigo-500/20 ${
+                  isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                }`}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Prompt Category Tabs */}
+        <div className="flex flex-wrap gap-2 mb-6">
+          {[
+            { id: 'about', label: "'About Us' Story", icon: MessageSquare, badge: 'Page Copy' },
+            { id: 'product', label: 'Product Description', icon: Target, badge: 'High Converting' },
+            { id: 'social', label: 'Social Media Launch', icon: Share2, badge: '3 Platforms' },
+            { id: 'email', label: 'Email Newsletter', icon: Megaphone, badge: 'Outreach' },
+            { id: 'tagline', label: 'Brand Taglines & Slogans', icon: Lightbulb, badge: '10 Concepts' },
+            { id: 'ad', label: 'Ad Campaign Creative', icon: Zap, badge: 'Search & Paid' }
+          ].map((cat) => {
+            const IconComp = cat.icon;
+            const isSelected = selectedPromptCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                id={`prompt-cat-tab-${cat.id}`}
+                onClick={() => setSelectedPromptCategory(cat.id as any)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold font-sans flex items-center gap-2 border transition-all duration-200 cursor-pointer ${
+                  isSelected
+                    ? 'bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-600/20 scale-[1.02]'
+                    : isDark
+                      ? 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                      : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300 shadow-2xs'
+                }`}
+              >
+                <IconComp className={`w-3.5 h-3.5 ${isSelected ? 'text-white' : 'text-indigo-500'}`} />
+                <span>{cat.label}</span>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-mono ${
+                  isSelected ? 'bg-white/20 text-white' : isDark ? 'bg-slate-900 text-slate-400' : 'bg-slate-100 text-slate-500'
+                }`}>
+                  {cat.badge}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Active Prompt / Draft Display Container */}
+        <div className={`border rounded-2xl overflow-hidden transition-all duration-300 ${
+          isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-900 text-slate-100 border-slate-800'
+        }`}>
+          {/* Top Bar with Status & Copy Buttons */}
+          <div className="px-5 py-3 border-b border-slate-800 bg-slate-900/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs font-extrabold text-slate-200 font-sans">
+                {promptViewMode === 'prompt' ? 'Tailored AI Prompt Template' : 'Live Generated Sample Draft'}
+              </span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                Category: {selectedPromptCategory.toUpperCase()}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {promptViewMode === 'prompt' ? (
+                <button
+                  id="copy-ai-prompt-btn"
+                  onClick={() => {
+                    const { promptText } = getTailoredMarketingPrompt(selectedPromptCategory);
+                    navigator.clipboard.writeText(promptText);
+                    setIsCopiedPromptText(true);
+                    setToast({
+                      message: "Copied AI Prompt for ChatGPT / Gemini!",
+                      hex: bible.colorPalette[0]?.hex || '#6366f1'
+                    });
+                    setTimeout(() => setIsCopiedPromptText(false), 2000);
+                    setTimeout(() => setToast(null), 2500);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold font-sans flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+                >
+                  {isCopiedPromptText ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-300" />
+                      <span>Copied Prompt!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy AI Prompt</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <button
+                  id="copy-sample-draft-btn"
+                  onClick={() => {
+                    const { sampleDraft } = getTailoredMarketingPrompt(selectedPromptCategory);
+                    navigator.clipboard.writeText(sampleDraft);
+                    setIsCopiedSampleText(true);
+                    setToast({
+                      message: "Copied Sample Copy Draft!",
+                      hex: bible.colorPalette[0]?.hex || '#6366f1'
+                    });
+                    setTimeout(() => setIsCopiedSampleText(false), 2000);
+                    setTimeout(() => setToast(null), 2500);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold font-sans flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-xs"
+                >
+                  {isCopiedSampleText ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Copied Sample Draft!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy Draft Text</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Text Content Box */}
+          <div className="p-6 font-mono text-xs leading-relaxed text-slate-300 max-h-[460px] overflow-y-auto whitespace-pre-wrap selection:bg-indigo-500 selection:text-white">
+            {promptViewMode === 'prompt'
+              ? getTailoredMarketingPrompt(selectedPromptCategory).promptText
+              : getTailoredMarketingPrompt(selectedPromptCategory).sampleDraft
+            }
+          </div>
+
+          {/* Bottom Information Footer */}
+          <div className="px-5 py-3 bg-slate-900/60 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400 font-sans">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Paste directly into Gemini, ChatGPT, Claude, or any LLM marketing workflow.</span>
+            </div>
+            <span className="font-mono text-indigo-400">
+              {voiceMetrics.length} Active Voice Metrics Integrated
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Brand Analytics Section */}
       <div
         id="brand-analytics-section"
@@ -1998,6 +3363,260 @@ export default function BrandBibleDashboard({
             </div>
           </div>
         )}
+
+        {/* Mission-Driven Repeating Brand Pattern Visualizer & Generator */}
+        <div className={`mt-8 border rounded-2xl p-6 transition-all duration-300 ${
+          isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+        }`}>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800 mb-6">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 border border-indigo-500/20">
+                  Mission-Driven Pattern Engine
+                </span>
+                <span className="text-[10px] font-bold text-slate-400 font-mono">
+                  Primary Color: {bible.colorPalette[0]?.hex || '#6366f1'}
+                </span>
+              </div>
+              <h3 className={`text-base font-black flex items-center gap-2 font-sans tracking-tight ${
+                isDark ? 'text-white' : 'text-slate-900'
+              }`}>
+                <Wand2 className="w-4 h-4 text-indigo-500" />
+                Live Mission-Based Pattern Visualizer
+              </h3>
+              <p className="text-xs text-slate-400 font-sans mt-0.5 max-w-2xl">
+                Dynamically synthesizes repeating background vector tiles derived from your brand's primary color and core mission statement.
+              </p>
+            </div>
+
+            {/* Canvas Overlay Mode */}
+            <div className={`flex items-center rounded-lg p-1 border text-[10px] font-sans font-bold self-start md:self-auto ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}>
+              <span className="text-slate-400 px-2 text-[9px] uppercase font-bold">Canvas Mode:</span>
+              <button
+                id="mission-bg-mode-light-btn"
+                onClick={() => setMissionPatternBgMode('light')}
+                className={`px-2.5 py-1 rounded-md transition duration-150 cursor-pointer ${
+                  missionPatternBgMode === 'light'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                }`}
+              >
+                Light
+              </button>
+              <button
+                id="mission-bg-mode-dark-btn"
+                onClick={() => setMissionPatternBgMode('dark')}
+                className={`px-2.5 py-1 rounded-md transition duration-150 cursor-pointer ${
+                  missionPatternBgMode === 'dark'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                }`}
+              >
+                Dark
+              </button>
+              <button
+                id="mission-bg-mode-brand-btn"
+                onClick={() => setMissionPatternBgMode('brand')}
+                className={`px-2.5 py-1 rounded-md transition duration-150 cursor-pointer ${
+                  missionPatternBgMode === 'brand'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                }`}
+              >
+                Brand Fill
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+            {/* Interactive Preview Canvas with Overlay Card */}
+            <div className="lg:col-span-7 flex flex-col space-y-3">
+              <div
+                id="mission-pattern-preview-canvas"
+                className="w-full min-h-[340px] rounded-2xl border flex items-center justify-center relative overflow-hidden transition-all duration-500 p-6 shadow-inner"
+                style={{
+                  backgroundColor:
+                    missionPatternBgMode === 'light'
+                      ? '#f8fafc'
+                      : missionPatternBgMode === 'dark'
+                        ? '#090d16'
+                        : (bible.colorPalette[0]?.hex || '#6366f1'),
+                  ...getMissionPatternStyle()
+                }}
+              >
+                {/* Floating Brand Mission Overlay Banner */}
+                <div className={`p-5 rounded-2xl border backdrop-blur-md shadow-2xl max-w-md w-full text-center space-y-2.5 transition duration-300 ${
+                  missionPatternBgMode === 'dark' || missionPatternBgMode === 'brand'
+                    ? 'bg-slate-950/85 border-slate-800 text-white shadow-black/50'
+                    : 'bg-white/90 border-white/80 text-slate-900 shadow-slate-200/50'
+                }`}>
+                  <div className="flex items-center justify-center gap-2">
+                    <span
+                      className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-xs"
+                      style={{ backgroundColor: bible.colorPalette[0]?.hex || '#6366f1' }}
+                    />
+                    <span className="text-[10px] uppercase font-extrabold tracking-wider text-indigo-500 font-sans">
+                      {bible.companyName} Mission Backdrop
+                    </span>
+                  </div>
+                  <p className="text-xs font-bold leading-relaxed font-sans italic">
+                    "{bible.mission || 'Empowering people through purpose-driven design.'}"
+                  </p>
+                  <div className="flex items-center justify-center gap-2 pt-1 text-[9px] text-slate-400 font-mono">
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                      Motif: {missionPatternMotif}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                      Tile: {missionPatternTileSize}px
+                    </span>
+                  </div>
+                </div>
+
+                <div className="absolute bottom-2.5 right-3 px-2.5 py-1 rounded-lg border text-[9px] font-bold font-mono tracking-wider backdrop-blur-md bg-slate-900/80 text-white border-white/10 pointer-events-none">
+                  LIVE REPEATING SVG TILE
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  id="copy-mission-svg-btn"
+                  onClick={handleCopyMissionPatternSvg}
+                  className={`flex-1 min-w-[140px] py-2 px-3 border rounded-xl text-xs font-bold font-sans flex items-center justify-center gap-2 transition duration-150 cursor-pointer active:scale-95 ${
+                    isDark
+                      ? 'bg-slate-900 border-slate-800 text-slate-200 hover:text-white hover:border-indigo-500'
+                      : 'bg-white border-slate-200 text-slate-700 hover:text-indigo-600 shadow-2xs'
+                  }`}
+                >
+                  {isCopiedMissionPatternSvg ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Copied SVG!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-indigo-500" />
+                      <span>Copy Pattern SVG</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  id="copy-mission-css-btn"
+                  onClick={handleCopyMissionPatternCss}
+                  className={`flex-1 min-w-[140px] py-2 px-3 border rounded-xl text-xs font-bold font-sans flex items-center justify-center gap-2 transition duration-150 cursor-pointer active:scale-95 ${
+                    isDark
+                      ? 'bg-slate-900 border-slate-800 text-slate-200 hover:text-white hover:border-indigo-500'
+                      : 'bg-white border-slate-200 text-slate-700 hover:text-indigo-600 shadow-2xs'
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Copy CSS Rule</span>
+                </button>
+
+                <button
+                  id="download-mission-svg-btn"
+                  onClick={handleDownloadMissionPatternSvg}
+                  className={`py-2 px-3 border rounded-xl text-xs font-bold font-sans flex items-center justify-center gap-2 transition duration-150 cursor-pointer active:scale-95 ${
+                    isDark
+                      ? 'bg-slate-900 border-slate-800 text-slate-200 hover:text-white hover:border-indigo-500'
+                      : 'bg-white border-slate-200 text-slate-700 hover:text-indigo-600 shadow-2xs'
+                  }`}
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Download SVG</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Pattern Tuning & Parameters Column */}
+            <div className="lg:col-span-5 flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 font-sans block">
+                  Pattern Generator Parameters
+                </span>
+
+                {/* Motif Choice */}
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 dark:text-slate-300 block mb-1.5 font-sans">
+                    Geometric Motif Style
+                  </label>
+                  <select
+                    id="mission-pattern-motif-select"
+                    value={missionPatternMotif}
+                    onChange={(e) => setMissionPatternMotif(e.target.value as any)}
+                    className={`w-full px-3 py-2 text-xs rounded-xl border font-bold font-sans transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer ${
+                      isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                    }`}
+                  >
+                    <option value="mission-grid">Mission Grid & Cross Nodes</option>
+                    <option value="diamond-emblem">Interlocking Diamond Emblem</option>
+                    <option value="radiant-rings">Concentric Radiant Rings</option>
+                    <option value="organic-waves">Organic Mission Wave Lines</option>
+                    <option value="typography-geometry">Rotated Geometric Mesh</option>
+                  </select>
+                </div>
+
+                {/* Tile Size Slider */}
+                <div className={`p-3 border rounded-xl ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'}`}>
+                  <div className="flex items-center justify-between text-xs font-bold mb-1.5 font-sans">
+                    <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>Tile Scale Size</span>
+                    <span className="font-mono text-indigo-500 font-extrabold">{missionPatternTileSize}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={32}
+                    max={128}
+                    step={4}
+                    value={missionPatternTileSize}
+                    onChange={(e) => setMissionPatternTileSize(parseInt(e.target.value, 10))}
+                    className="w-full accent-indigo-600 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[9px] text-slate-400 mt-1 font-mono">
+                    <span>Dense (32px)</span>
+                    <span>Spacious (128px)</span>
+                  </div>
+                </div>
+
+                {/* Opacity Slider */}
+                <div className={`p-3 border rounded-xl ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'}`}>
+                  <div className="flex items-center justify-between text-xs font-bold mb-1.5 font-sans">
+                    <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>Vector Stroke Opacity</span>
+                    <span className="font-mono text-indigo-500 font-extrabold">{Math.round(missionPatternOpacity * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.15}
+                    max={1.0}
+                    step={0.05}
+                    value={missionPatternOpacity}
+                    onChange={(e) => setMissionPatternOpacity(parseFloat(e.target.value))}
+                    className="w-full accent-indigo-600 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[9px] text-slate-400 mt-1 font-mono">
+                    <span>Subtle (15%)</span>
+                    <span>High Contrast (100%)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dynamic Mission Hash info box */}
+              <div className={`p-3.5 border rounded-xl text-xs font-sans leading-relaxed ${
+                isDark ? 'bg-indigo-950/20 border-indigo-900/40 text-slate-300' : 'bg-indigo-50/60 border-indigo-100 text-slate-700'
+              }`}>
+                <div className="flex items-center gap-1.5 font-extrabold text-indigo-500 text-[10px] uppercase tracking-wider mb-1">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Mission-Algorithmic Vector Binding
+                </div>
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  The primary color <span className="font-mono text-indigo-500 font-bold">{bible.colorPalette[0]?.hex || '#6366f1'}</span> establishes vector stroke tints, while the length and character tokens of your mission statement calculate stroke weights, rotation angles, and node ring radiuses.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Color Palette Section */}
@@ -2071,6 +3690,56 @@ export default function BrandBibleDashboard({
           </div>
         </div>
 
+        {/* Developer Integration & Bulk Copy Bar */}
+        <div className={`p-3.5 border rounded-2xl mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+          isDark ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'
+        }`}>
+          <div className="flex items-center gap-2">
+            <Code2 className="w-4 h-4 text-indigo-500 shrink-0" />
+            <span className="text-xs font-bold font-sans text-slate-300 dark:text-slate-200">
+              Developer Clipboard Integrations:
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              id="copy-all-hex-btn"
+              onClick={handleCopyAllHexCodes}
+              className={`px-3 py-1.5 text-[10px] font-extrabold rounded-full border transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                isDark
+                  ? 'bg-slate-900 border-slate-700 text-slate-200 hover:text-white hover:border-indigo-500'
+                  : 'bg-white border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300 shadow-2xs'
+              }`}
+            >
+              <Copy className="w-3 h-3 text-indigo-500" />
+              <span>Copy All HEX</span>
+            </button>
+            <button
+              id="copy-css-vars-btn"
+              onClick={handleCopyCssVariables}
+              className={`px-3 py-1.5 text-[10px] font-extrabold rounded-full border transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                isDark
+                  ? 'bg-slate-900 border-slate-700 text-slate-200 hover:text-white hover:border-indigo-500'
+                  : 'bg-white border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300 shadow-2xs'
+              }`}
+            >
+              <FileText className="w-3 h-3 text-emerald-500" />
+              <span>CSS Variables</span>
+            </button>
+            <button
+              id="copy-tailwind-config-btn"
+              onClick={handleCopyTailwindConfig}
+              className={`px-3 py-1.5 text-[10px] font-extrabold rounded-full border transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                isDark
+                  ? 'bg-slate-900 border-slate-700 text-slate-200 hover:text-white hover:border-indigo-500'
+                  : 'bg-white border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300 shadow-2xs'
+              }`}
+            >
+              <FileJson className="w-3 h-3 text-amber-500" />
+              <span>Tailwind Theme</span>
+            </button>
+          </div>
+        </div>
+
         {/* Color Blocks */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           {bible.colorPalette.map((color, colorIdx) => {
@@ -2083,7 +3752,7 @@ export default function BrandBibleDashboard({
                 id={`color-block-${color.name.toLowerCase().replace(/\s+/g, '-')}`}
                 key={color.hex}
                 onClick={() => copyToClipboard(color.hex, color.name)}
-                className="group border border-slate-200/80 rounded-2xl p-4 cursor-pointer hover:shadow-md transition duration-200 relative overflow-hidden flex flex-col justify-between min-h-[160px]"
+                className="group border border-slate-200/80 rounded-2xl p-4 cursor-pointer hover:shadow-md transition duration-200 relative overflow-hidden flex flex-col justify-between min-h-[190px]"
                 style={{ backgroundColor: color.hex }}
               >
                 {/* Visual feedback overlay */}
@@ -2112,10 +3781,36 @@ export default function BrandBibleDashboard({
                   </div>
                   <h3 className="text-xs font-black mt-1 truncate">{color.name}</h3>
                   <span className="text-[10px] font-mono font-bold tracking-wide mt-0.5 block">{color.hex}</span>
+
+                  {/* Explicit Copy to Clipboard Button */}
+                  <button
+                    id={`copy-btn-${color.name.toLowerCase().replace(/\s+/g, '-')}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      copyToClipboard(color.hex, color.name);
+                    }}
+                    className={`mt-2.5 w-full py-1.5 px-2 rounded-lg text-[10px] font-bold font-sans flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 ${
+                      copiedHex === color.hex
+                        ? 'bg-emerald-600 text-white font-extrabold'
+                        : 'bg-slate-900/80 hover:bg-slate-900 text-white border border-white/10'
+                    }`}
+                  >
+                    {copiedHex === color.hex ? (
+                      <>
+                        <Check className="w-3 h-3 text-white" />
+                        <span>Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3 text-indigo-300" />
+                        <span>Copy HEX</span>
+                      </>
+                    )}
+                  </button>
                 </div>
 
                 {/* Usage instruction line */}
-                <p className={`text-[9px] leading-snug mt-4 font-sans font-semibold line-clamp-3 z-10 p-2.5 rounded-lg ${
+                <p className={`text-[9px] leading-snug mt-3 font-sans font-semibold line-clamp-3 z-10 p-2.5 rounded-lg ${
                   isWhiteOrLight || color.role.toLowerCase().includes('light')
                     ? 'bg-slate-900/10 text-slate-800'
                     : 'bg-white/30 text-white drop-shadow-sm'
