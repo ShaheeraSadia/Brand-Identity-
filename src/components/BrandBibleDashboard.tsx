@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import { BrandBible, Color, BrandArchetype, BrandPattern, BrandFavicon, VoiceMetric } from '../types';
+import { safeFetchJson } from '../utils/api';
 import { Palette, Type, CheckCircle, XCircle, Copy, Check, Download, RefreshCw, FileImage, ShieldCheck, AlignLeft, Eye, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Shuffle, History, Compass, Sparkles, Layers, Grid, Globe, Activity, ThumbsUp, BarChart3, TrendingUp, FileJson, FileText, ChevronDown, Volume2, Sliders, MessageSquare, Code2, Target, Wand2, Bot, Zap, Share2, Lightbulb, Megaphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -143,7 +144,7 @@ export default function BrandBibleDashboard({
   const handleShufflePalette = async () => {
     setIsShuffling(true);
     try {
-      const response = await fetch('/api/brand/shuffle-palette', {
+      const data = await safeFetchJson('/api/brand/shuffle-palette', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -156,11 +157,6 @@ export default function BrandBibleDashboard({
         })
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to shuffle palette.");
-      }
-
-      const data = await response.json();
       if (data.colorPalette && Array.isArray(data.colorPalette)) {
         onUpdatePalette(data.colorPalette);
         setToast({
@@ -231,7 +227,7 @@ export default function BrandBibleDashboard({
   const handleGenerateArchetype = async () => {
     setIsGeneratingArchetype(true);
     try {
-      const response = await fetch('/api/brand/generate-archetype', {
+      const data = await safeFetchJson('/api/brand/generate-archetype', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -242,11 +238,6 @@ export default function BrandBibleDashboard({
         })
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to analyze brand archetype.");
-      }
-
-      const data = await response.json();
       if (data && data.primaryArchetype) {
         onUpdateArchetype(data);
         setToast({
@@ -802,7 +793,7 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
     setIsGeneratingPattern(true);
     const styleToUse = styleOverride || selectedPatternStyle;
     try {
-      const response = await fetch('/api/brand/generate-pattern', {
+      const data = await safeFetchJson('/api/brand/generate-pattern', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -816,11 +807,6 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         })
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to generate pattern.");
-      }
-
-      const data = await response.json();
       if (data && data.svgMarkup) {
         onUpdatePattern(data);
         setToast({
@@ -1348,7 +1334,7 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
   const handleGenerateFavicon = async () => {
     setIsGeneratingFavicon(true);
     try {
-      const response = await fetch('/api/brand/generate-favicon', {
+      const data = await safeFetchJson('/api/brand/generate-favicon', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1362,11 +1348,6 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         })
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to generate brand favicon.");
-      }
-
-      const data = await response.json();
       if (data && data.svgMarkup) {
         onUpdateFavicon(data);
         setToast({

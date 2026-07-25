@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { BrandBible } from './types';
+import { safeFetchJson } from './utils/api';
 import BrandConfigForm from './components/BrandConfigForm';
 import BrandBibleDashboard from './components/BrandBibleDashboard';
 import BrandMockups from './components/BrandMockups';
@@ -103,19 +105,12 @@ export default function App() {
 
     try {
       // Step A: Generate Structured Bible Specifications
-      const bibleRes = await fetch('/api/brand/generate-bible', {
+      const generatedSpec = await safeFetchJson('/api/brand/generate-bible', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
 
-      if (!bibleRes.ok) {
-        const errData = await bibleRes.json();
-        throw new Error(errData.error || "Failed to generate Brand specifications.");
-      }
-
-      const generatedSpec = await bibleRes.json();
-      
       const newBible: BrandBible = {
         ...generatedSpec,
         id: `bible-${Date.now()}`,
@@ -129,28 +124,29 @@ export default function App() {
 
       // Step B: Auto-synthesize Primary Logo Image in the background
       console.log("Triggering auto-synthesis of brand logo:", newBible.logoPrompt);
-      const logoRes = await fetch('/api/brand/generate-logo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: newBible.logoPrompt,
-          size: formData.logoSize
-        })
-      });
+      try {
+        const logoData = await safeFetchJson('/api/brand/generate-logo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: newBible.logoPrompt,
+            size: formData.logoSize
+          })
+        });
 
-      if (!logoRes.ok) {
-        throw new Error("Brand specifications created, but Logo image synthesis failed. You can retry in the dashboard.");
+        const completeBible: BrandBible = {
+          ...newBible,
+          primaryLogo: logoData.imageUrl,
+          previousLogos: [logoData.imageUrl]
+        };
+
+        // Save to persistence
+        saveBibleToStorage(completeBible);
+      } catch (logoErr: any) {
+        console.warn("Logo synthesis failed:", logoErr);
+        // Still save specs even if logo generation errored
+        saveBibleToStorage(newBible);
       }
-
-      const logoData = await logoRes.json();
-      const completeBible: BrandBible = {
-        ...newBible,
-        primaryLogo: logoData.imageUrl,
-        previousLogos: [logoData.imageUrl]
-      };
-
-      // Save to persistence
-      saveBibleToStorage(completeBible);
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Failed to generate Brand specification.");
@@ -169,7 +165,7 @@ export default function App() {
     const promptToUse = customPrompt || activeBible.logoPrompt;
 
     try {
-      const response = await fetch('/api/brand/generate-logo', {
+      const data = await safeFetchJson('/api/brand/generate-logo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -178,12 +174,6 @@ export default function App() {
         })
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Failed to regenerate brand logo.");
-      }
-
-      const data = await response.json();
       const currentPrev = activeBible.previousLogos || (activeBible.primaryLogo ? [activeBible.primaryLogo] : []);
       const updatedBible: BrandBible = {
         ...activeBible,
@@ -382,54 +372,72 @@ export default function App() {
                 </div>
 
                 {/* Sub Tab View Rendering */}
-                {activeMainTab === 'bible' ? (
-                  <BrandBibleDashboard
-                    bible={activeBible}
-                    onUpdateLogo={(url) => {
-                      const currentPrev = activeBible.previousLogos || (activeBible.primaryLogo ? [activeBible.primaryLogo] : []);
-                      const updated = {
-                        ...activeBible,
-                        primaryLogo: url,
-                        previousLogos: currentPrev.includes(url) ? currentPrev : [...currentPrev, url]
-                      };
-                      saveBibleToStorage(updated);
-                    }}
-                    onUpdatePalette={(newPalette) => {
-                      const updated = {
-                        ...activeBible,
-                        colorPalette: newPalette
-                      };
-                      saveBibleToStorage(updated);
-                    }}
-                    onUpdateArchetype={(newArchetype) => {
-                      const updated = {
-                        ...activeBible,
-                        archetype: newArchetype
-                      };
-                      saveBibleToStorage(updated);
-                    }}
-                    onUpdatePattern={(newPattern) => {
-                      const updated = {
-                        ...activeBible,
-                        pattern: newPattern
-                      };
-                      saveBibleToStorage(updated);
-                    }}
-                    onUpdateFavicon={(newFavicon) => {
-                      const updated = {
-                        ...activeBible,
-                        favicon: newFavicon
-                      };
-                      saveBibleToStorage(updated);
-                    }}
-                    isLoadingLogo={isLoadingLogo}
-                    onRegenerateLogo={handleRegenerateLogo}
-                    logoSize={logoSize}
-                    isDark={isDark}
-                  />
-                ) : (
-                  <BrandMockups bible={activeBible} isDark={isDark} />
-                )}
+                <AnimatePresence mode="wait">
+                  {activeMainTab === 'bible' ? (
+                    <motion.div
+                      key="bible"
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                    >
+                      <BrandBibleDashboard
+                        bible={activeBible}
+                        onUpdateLogo={(url) => {
+                          const currentPrev = activeBible.previousLogos || (activeBible.primaryLogo ? [activeBible.primaryLogo] : []);
+                          const updated = {
+                            ...activeBible,
+                            primaryLogo: url,
+                            previousLogos: currentPrev.includes(url) ? currentPrev : [...currentPrev, url]
+                          };
+                          saveBibleToStorage(updated);
+                        }}
+                        onUpdatePalette={(newPalette) => {
+                          const updated = {
+                            ...activeBible,
+                            colorPalette: newPalette
+                          };
+                          saveBibleToStorage(updated);
+                        }}
+                        onUpdateArchetype={(newArchetype) => {
+                          const updated = {
+                            ...activeBible,
+                            archetype: newArchetype
+                          };
+                          saveBibleToStorage(updated);
+                        }}
+                        onUpdatePattern={(newPattern) => {
+                          const updated = {
+                            ...activeBible,
+                            pattern: newPattern
+                          };
+                          saveBibleToStorage(updated);
+                        }}
+                        onUpdateFavicon={(newFavicon) => {
+                          const updated = {
+                            ...activeBible,
+                            favicon: newFavicon
+                          };
+                          saveBibleToStorage(updated);
+                        }}
+                        isLoadingLogo={isLoadingLogo}
+                        onRegenerateLogo={handleRegenerateLogo}
+                        logoSize={logoSize}
+                        isDark={isDark}
+                      />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="mockups"
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                    >
+                      <BrandMockups bible={activeBible} isDark={isDark} />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             ) : (
               /* Welcome Placeholder Screen */

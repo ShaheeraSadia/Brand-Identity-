@@ -32,6 +32,49 @@ const PORT = 3000;
     return aiInstance;
   }
 
+  // Safe JSON parser that strips markdown code blocks and handles LLM output preamble
+  function parseJsonFromText(rawText?: string): any {
+    if (!rawText) return {};
+    let cleaned = rawText.trim();
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    try {
+      return JSON.parse(cleaned);
+    } catch (e) {
+      const firstBrace = cleaned.indexOf('{');
+      const lastBrace = cleaned.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        const jsonSub = cleaned.substring(firstBrace, lastBrace + 1);
+        return JSON.parse(jsonSub);
+      }
+      throw new Error(`Failed to parse AI JSON response: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Resilient Gemini text generation with automatic model fallback
+  async function generateContentWithFallback(ai: GoogleGenAI, primaryModel: string, options: any) {
+    const modelsToTry = Array.from(new Set([
+      primaryModel,
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash"
+    ])).filter(Boolean);
+
+    let lastError: any = null;
+    for (const model of modelsToTry) {
+      try {
+        const res = await ai.models.generateContent({
+          ...options,
+          model
+        });
+        return res;
+      } catch (err: any) {
+        console.warn(`Model ${model} failed, trying fallback model if available:`, err?.message || err);
+        lastError = err;
+      }
+    }
+    throw lastError || new Error("Failed to generate content with available Gemini models.");
+  }
+
   // 1. Generate Structured Brand Bible data
   app.post("/api/brand/generate-bible", async (req, res) => {
     try {
@@ -48,8 +91,7 @@ ${customInstructions ? `- Custom Brand Style Requirements: ${customInstructions}
 
 Make sure the color palette contains exactly 5 highly cohesive, professional, modern hex colors matching the brand's aesthetic and personality target. Write detailed strategic notes for how to use each color. Pair two Google Fonts perfectly (one for headers, one for body) to establish a distinctive typography personality. Provide a highly descriptive prompt for generating a vector-style primary logo.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await generateContentWithFallback(ai, "gemini-2.5-flash", {
         contents: userPrompt,
         config: {
           systemInstruction: "You are an elite Brand Identity Director and Chief Designer. You craft highly specific, visually stunning, cohesive brand specifications for modern businesses. Avoid generic designs. Your output must be precise and match the requested JSON schema.",
@@ -175,7 +217,7 @@ Make sure the color palette contains exactly 5 highly cohesive, professional, mo
         }
       });
 
-      const parsedData = JSON.parse(response.text || "{}");
+      const parsedData = parseJsonFromText(response.text);
       res.json(parsedData);
     } catch (error: any) {
       console.error("Error generating Brand Bible:", error);
@@ -204,8 +246,7 @@ Provide:
 4. 3 specific attributes/character traits
 5. Scores out of 100 for these 6 major archetypes for the radar chart: 'The Creator', 'The Hero', 'The Sage', 'The Magician', 'The Explorer', 'The Ruler'. Ensure the primary archetype matches one of these or is highly related, and has the highest score.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await generateContentWithFallback(ai, "gemini-2.5-flash", {
         contents: userPrompt,
         config: {
           systemInstruction: "You are an elite Brand Strategy Consultant specializing in Jungian brand archetypes and strategic positioning. Your output must be highly professional and match the requested JSON schema exactly.",
@@ -238,7 +279,7 @@ Provide:
         }
       });
 
-      const parsedData = JSON.parse(response.text || "{}");
+      const parsedData = parseJsonFromText(response.text);
       res.json(parsedData);
     } catch (error: any) {
       console.error("Error generating brand archetype:", error);
@@ -277,8 +318,7 @@ Provide:
 2. A description explaining why this design style and layout matches the brand's personality spectrum and values.
 3. The raw, valid SVG markup string (svgMarkup).`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await generateContentWithFallback(ai, "gemini-2.5-flash", {
         contents: userPrompt,
         config: {
           systemInstruction: "You are an elite visual UI/UX designer and design system pattern architect. Your output must be highly professional and match the requested JSON schema exactly.",
@@ -295,7 +335,7 @@ Provide:
         }
       });
 
-      const parsedData = JSON.parse(response.text || "{}");
+      const parsedData = parseJsonFromText(response.text);
       res.json(parsedData);
     } catch (error: any) {
       console.error("Error generating brand pattern:", error);
@@ -324,8 +364,7 @@ The requested shuffle style is: "${shuffleType || "alternative shades or complem
 
 Generate a new, perfectly matched 5-color palette. Each color MUST have a hex code, a creative and evocative color name, a specific role (one of: 'Primary', 'Secondary', 'Accent', 'Dark Neutral', 'Light Neutral'), and a detailed usage direction. Make sure the 5 roles are distinct (having one of each role is ideal, or well balanced). Return the new palette matching the schema.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await generateContentWithFallback(ai, "gemini-2.5-flash", {
         contents: userPrompt,
         config: {
           systemInstruction: "You are an elite Brand Identity Director specializing in advanced color theory. You design high-end, highly cohesive, modern design color systems. Your output must match the requested JSON schema exactly.",
@@ -352,7 +391,7 @@ Generate a new, perfectly matched 5-color palette. Each color MUST have a hex co
         }
       });
 
-      const parsedData = JSON.parse(response.text || "{}");
+      const parsedData = parseJsonFromText(response.text);
       res.json(parsedData);
     } catch (error: any) {
       console.error("Error shuffling palette:", error);
@@ -419,8 +458,7 @@ Please analyze the brand and any provided logo image to create this favicon.`;
         contents.push(promptText);
       }
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await generateContentWithFallback(ai, "gemini-2.5-flash", {
         contents,
         config: {
           systemInstruction: "You are an elite vector icon designer and brand developer. You specialize in creating beautiful, tileable, and pixel-perfect SVG web favicons. Your output must be highly professional and match the requested JSON schema exactly.",
@@ -437,7 +475,7 @@ Please analyze the brand and any provided logo image to create this favicon.`;
         }
       });
 
-      const parsedData = JSON.parse(response.text || "{}");
+      const parsedData = parseJsonFromText(response.text);
       res.json(parsedData);
     } catch (error: any) {
       console.error("Error generating brand favicon:", error);
@@ -451,38 +489,65 @@ Please analyze the brand and any provided logo image to create this favicon.`;
       const { prompt, size } = req.body;
       const ai = getGenAI();
 
-      // size can be: "1K", "2K", "4K"
       const imageSize = ["1K", "2K", "4K"].includes(size) ? size : "1K";
 
-      console.log(`Logo generation request using gemini-3-pro-image-preview, size: ${imageSize}`);
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-image-preview',
-        contents: {
-          parts: [{ text: prompt }]
-        },
-        config: {
-          imageConfig: {
-            aspectRatio: "1:1",
-            imageSize: imageSize
-          }
-        }
-      });
-
       let base64Image = null;
-      if (response.candidates?.[0]?.content?.parts) {
-        for (const part of response.candidates[0].content.parts) {
-          if (part.inlineData) {
-            base64Image = `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
-            break;
+      let lastErr = null;
+
+      // Try image generation models in priority order
+      const imageModels = [
+        'imagen-3.0-generate-002',
+        'imagen-3.0-fast-generate-001',
+        'gemini-2.5-flash'
+      ];
+
+      for (const model of imageModels) {
+        try {
+          if (model.startsWith('imagen-')) {
+            const response = await ai.models.generateImages({
+              model: model,
+              prompt: prompt,
+              config: {
+                numberOfImages: 1,
+                aspectRatio: '1:1',
+                outputMimeType: 'image/png'
+              }
+            });
+            if (response.generatedImages?.[0]?.image?.imageBytes) {
+              base64Image = `data:image/png;base64,${response.generatedImages[0].image.imageBytes}`;
+              break;
+            }
+          } else {
+            const response = await ai.models.generateContent({
+              model: model,
+              contents: { parts: [{ text: prompt }] },
+              config: {
+                imageConfig: {
+                  aspectRatio: "1:1",
+                  imageSize: imageSize
+                }
+              }
+            });
+            if (response.candidates?.[0]?.content?.parts) {
+              for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData) {
+                  base64Image = `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+                  break;
+                }
+              }
+            }
+            if (base64Image) break;
           }
+        } catch (e: any) {
+          console.warn(`Logo image model ${model} failed:`, e.message);
+          lastErr = e;
         }
       }
 
       if (base64Image) {
         res.json({ imageUrl: base64Image });
       } else {
-        throw new Error("No image data found in the response parts.");
+        throw lastErr || new Error("Unable to synthesize logo image.");
       }
     } catch (error: any) {
       console.error("Error in image generation:", error);
@@ -496,7 +561,7 @@ Please analyze the brand and any provided logo image to create this favicon.`;
       const { history, message, brandBible, selectedModel } = req.body;
       const ai = getGenAI();
 
-      const modelName = selectedModel || "gemini-3.5-flash";
+      const modelName = selectedModel || "gemini-2.5-flash";
 
       let systemPrompt = "You are a highly perceptive, world-class Brand Strategy and Design Consultant. ";
       
@@ -542,7 +607,7 @@ However, always ensure you answer their underlying strategy questions with actua
       }
 
       // Convert the messages to format expected by @google/genai SDK
-      const contents = history.map((msg: any) => ({
+      const contents = (history || []).map((msg: any) => ({
         role: msg.role === "user" ? "user" : "model",
         parts: [{ text: msg.text }]
       }));
@@ -553,8 +618,7 @@ However, always ensure you answer their underlying strategy questions with actua
         parts: [{ text: message }]
       });
 
-      const response = await ai.models.generateContent({
-        model: modelName,
+      const response = await generateContentWithFallback(ai, modelName, {
         contents: contents,
         config: {
           systemInstruction: systemPrompt,
@@ -566,6 +630,12 @@ However, always ensure you answer their underlying strategy questions with actua
       console.error("Chat error:", error);
       res.status(500).json({ error: error.message || "Failed to retrieve consultant response." });
     }
+  });
+
+  // Global Express error handler ensures errors return JSON instead of HTML
+  app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error("Global express error handler:", err);
+    res.status(500).json({ error: err?.message || "An unexpected server error occurred." });
   });
 
   // Serve Frontend & Start listening only if not running on Vercel as a Serverless function

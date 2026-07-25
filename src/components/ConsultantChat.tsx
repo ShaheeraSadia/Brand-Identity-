@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage, BrandBible } from '../types';
+import { safeFetchJson } from '../utils/api';
 import { MessageSquare, Send, Sparkles, User, BrainCircuit, AlertCircle, HelpCircle } from 'lucide-react';
 
 interface ConsultantChatProps {
@@ -88,7 +89,7 @@ export default function ConsultantChat({ brandBible, isDark = false }: Consultan
     setError(null);
 
     try {
-      const response = await fetch('/api/brand/chat', {
+      const data = await safeFetchJson('/api/brand/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -99,13 +100,6 @@ export default function ConsultantChat({ brandBible, isDark = false }: Consultan
         })
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Failed to contact Brand Consultant.");
-      }
-
-      const data = await response.json();
-      
       setMessages(prev => [
         ...prev,
         {
