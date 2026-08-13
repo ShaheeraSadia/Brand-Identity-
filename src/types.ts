@@ -49,6 +49,7 @@ export interface VoiceMetric {
 export interface BrandVoice {
   tone: string; // e.g. "Authoritative, clear, and educational yet highly empathetic."
   personalityKeywords: string[]; // e.g. ["Transparent", "Uplifting", "Confident"]
+  aboutUsParagraph?: string; // Sample 'About Us' paragraph generated based on brand personality
   doVoiceRules: string[]; // e.g. ["Use active voice", "Keep sentences punchy"]
   dontVoiceRules: string[]; // e.g. ["Don't use salesy hyperbole", "Don't sound indifferent"]
   samplePhrases: string[]; // e.g. ["We're in this together.", "Making complex simple."]
@@ -83,4 +84,25 @@ export interface ChatMessage {
   role: 'user' | 'model' | 'system';
   text: string;
   timestamp: string;
+  colorPalette?: Color[];
+  paletteType?: string;
+  brandBibleUpdate?: BrandBible;
+  isApplied?: boolean;
+}
+
+export interface StyleAuditSectionReport {
+  score: number;
+  status: 'PASSED' | 'OPTIMAL' | 'WARNING' | string;
+  details: string;
+  recommendations: string[];
+}
+
+export interface StyleAuditReport {
+  overallScore: number;
+  ratingTagline: string;
+  summary: string;
+  colorContrastReport: StyleAuditSectionReport;
+  fontLegibilityReport: StyleAuditSectionReport;
+  archetypeConsistencyReport: StyleAuditSectionReport;
+  actionableImprovements: string[];
 }

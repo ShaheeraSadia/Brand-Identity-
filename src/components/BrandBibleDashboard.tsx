@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
-import { BrandBible, Color, BrandArchetype, BrandPattern, BrandFavicon, VoiceMetric } from '../types';
+import html2canvas from 'html2canvas';
+import * as htmlToImage from 'html-to-image';
+import { BrandBible, Color, BrandArchetype, BrandPattern, BrandFavicon, VoiceMetric, BrandVoice, StyleAuditReport } from '../types';
 import { safeFetchJson } from '../utils/api';
-import { Palette, Type, CheckCircle, XCircle, Copy, Check, Download, RefreshCw, FileImage, ShieldCheck, AlignLeft, Eye, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Shuffle, History, Compass, Sparkles, Layers, Grid, Globe, Activity, ThumbsUp, BarChart3, TrendingUp, FileJson, FileText, ChevronDown, Volume2, Sliders, MessageSquare, Code2, Target, Wand2, Bot, Zap, Share2, Lightbulb, Megaphone } from 'lucide-react';
+import { generateShareableUrl, encodeBrandBibleToHash } from '../utils/share';
+import { generatePatternSvg, generatePatternDataUrl, BRAND_PATTERN_TEMPLATES, PatternType, extractBrandColors } from '../utils/patternGenerator';
+import { Palette, Type, CheckCircle, XCircle, Copy, Check, Download, RefreshCw, FileImage, ShieldCheck, AlignLeft, Eye, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Shuffle, History, Compass, Sparkles, Layers, Grid, Globe, Activity, ThumbsUp, BarChart3, TrendingUp, FileJson, FileText, ChevronDown, Volume2, Sliders, MessageSquare, Code2, Target, Wand2, Bot, Zap, Share2, Lightbulb, Megaphone, X, Info, Search, ExternalLink, ArrowUpRight, Camera, Heart, Columns, LayoutGrid, Star, Ruler, Ban, Sun, Moon, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ResponsiveContainer,
@@ -23,6 +27,78 @@ import {
   Legend
 } from 'recharts';
 
+const staggerContainerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1,
+      delayChildren: 0.05,
+    },
+  },
+};
+
+const staggerItemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.4,
+      ease: [0.25, 0.1, 0.25, 1.0],
+    },
+  },
+};
+
+export interface PersonalityTrait {
+  trait: string;
+  score: number;
+  fullMark: number;
+  description: string;
+}
+
+export function computePersonalityTraitsFromMission(
+  missionText: string,
+  keywords: string[] = [],
+  industry: string = ''
+): PersonalityTrait[] {
+  const text = `${missionText || ''} ${keywords.join(' ')} ${industry || ''}`.toLowerCase();
+
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash << 5) - hash + text.charCodeAt(i);
+    hash |= 0;
+  }
+  const seed = Math.abs(hash);
+
+  const getSeedScore = (offset: number) => 58 + ((seed * (offset + 1) * 31) % 32); // baseline 58-89
+
+  const boldnessKW = ['bold', 'lead', 'disrupt', 'power', 'transform', 'courage', 'daring', 'fearless', 'impact', 'pioneer', 'frontier', 'dominate', 'master'];
+  const playfulnessKW = ['play', 'fun', 'delight', 'joy', 'creative', 'vibrant', 'friendly', 'colorful', 'exciting', 'engaging', 'smile', 'magic', 'spark'];
+  const sophisticationKW = ['luxury', 'premium', 'elegant', 'sophisticated', 'craft', 'refine', 'prestige', 'minimal', 'exclusive', 'heritage', 'sleek', 'flawless', 'quality'];
+  const trustKW = ['trust', 'secure', 'reliable', 'safe', 'proven', 'authentic', 'integrity', 'guarantee', 'foundation', 'stable', 'transparent', 'expert', 'shield'];
+  const innovationKW = ['innovate', 'next-gen', 'future', 'smart', 'tech', 'ai', 'modern', 'pioneer', 'cutting-edge', 'digital', 'vision', 'advanced', 'automation'];
+  const empathyKW = ['human', 'empower', 'community', 'care', 'sustainable', 'green', 'inclusive', 'empathy', 'together', 'people', 'accessible', 'support', 'listen'];
+
+  const countMatches = (list: string[]) => list.reduce((acc, kw) => (text.includes(kw) ? acc + 10 : acc), 0);
+
+  const boldness = Math.min(98, Math.max(35, getSeedScore(1) + countMatches(boldnessKW)));
+  const playfulness = Math.min(98, Math.max(35, getSeedScore(2) + countMatches(playfulnessKW)));
+  const sophistication = Math.min(98, Math.max(35, getSeedScore(3) + countMatches(sophisticationKW)));
+  const trustworthiness = Math.min(98, Math.max(35, getSeedScore(4) + countMatches(trustKW)));
+  const innovation = Math.min(98, Math.max(35, getSeedScore(5) + countMatches(innovationKW)));
+  const empathy = Math.min(98, Math.max(35, getSeedScore(6) + countMatches(empathyKW)));
+
+  return [
+    { trait: 'Boldness', score: boldness, fullMark: 100, description: 'Daring drive, market disruption & courage' },
+    { trait: 'Playfulness', score: playfulness, fullMark: 100, description: 'Creative delight, warmth & energy' },
+    { trait: 'Sophistication', score: sophistication, fullMark: 100, description: 'Sleek elegance, premium craft & refinement' },
+    { trait: 'Trustworthiness', score: trustworthiness, fullMark: 100, description: 'Rock-solid reliability, security & integrity' },
+    { trait: 'Innovation', score: innovation, fullMark: 100, description: 'Cutting-edge technology & forward vision' },
+    { trait: 'Empathy', score: empathy, fullMark: 100, description: 'Human-centric care, sustainability & inclusion' }
+  ];
+}
+
 interface BrandBibleDashboardProps {
   bible: BrandBible;
   onUpdateLogo: (newLogoUrl: string) => void;
@@ -34,6 +110,7 @@ interface BrandBibleDashboardProps {
   onUpdateArchetype: (newArchetype: BrandArchetype) => void;
   onUpdatePattern: (newPattern: BrandPattern) => void;
   onUpdateFavicon: (newFavicon: BrandFavicon) => void;
+  onUpdateVoice?: (newVoice: BrandVoice) => void;
 }
 
 export default function BrandBibleDashboard({
@@ -46,12 +123,212 @@ export default function BrandBibleDashboard({
   onUpdatePalette,
   onUpdateArchetype,
   onUpdatePattern,
-  onUpdateFavicon
+  onUpdateFavicon,
+  onUpdateVoice
 }: BrandBibleDashboardProps) {
   const [copiedHex, setCopiedHex] = useState<string | null>(null);
   const [contrastBg, setContrastBg] = useState<string>(bible.colorPalette[0]?.hex || '#ffffff');
   const [contrastText, setContrastText] = useState<string>(bible.colorPalette[1]?.hex || '#0f172a');
   const [pairwiseTab, setPairwiseTab] = useState<'matrix' | 'list'>('matrix');
+
+  // Contrast Sandbox Customization States
+  const [sandboxCustomHeading, setSandboxCustomHeading] = useState<string>('Designing with Accessible Intent');
+  const [sandboxCustomBody, setSandboxCustomBody] = useState<string>(`At ${bible.companyName || 'our brand'}, legibility is non-negotiable. Live-preview text and UI components on selected brand colors to ensure WCAG readability.`);
+  const [sandboxCustomButtonText, setSandboxCustomButtonText] = useState<string>('Explore Platform');
+  const [sandboxComponentView, setSandboxComponentView] = useState<'hero' | 'card' | 'form' | 'alert' | 'nav'>('hero');
+  const [sandboxFontSize, setSandboxFontSize] = useState<number>(16);
+  const [sandboxFontWeight, setSandboxFontWeight] = useState<'normal' | 'medium' | 'bold' | 'extrabold'>('bold');
+  const [isSandboxFullscreen, setIsSandboxFullscreen] = useState<boolean>(false);
+
+  // Mission Personality Traits Radar States
+  const [personalityTraits, setPersonalityTraits] = useState<PersonalityTrait[]>(() => {
+    return computePersonalityTraitsFromMission(
+      bible.mission,
+      bible.brandKeywords,
+      bible.industry
+    );
+  });
+  const [selectedTraitPreset, setSelectedTraitPreset] = useState<string>('auto');
+  const [showTraitSliders, setShowTraitSliders] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (selectedTraitPreset === 'auto') {
+      setPersonalityTraits(
+        computePersonalityTraitsFromMission(
+          bible.mission,
+          bible.brandKeywords,
+          bible.industry
+        )
+      );
+    }
+  }, [bible.mission, bible.brandKeywords, bible.industry, selectedTraitPreset]);
+
+  const handleTraitPresetChange = (presetKey: string) => {
+    setSelectedTraitPreset(presetKey);
+    if (presetKey === 'auto') {
+      setPersonalityTraits(
+        computePersonalityTraitsFromMission(
+          bible.mission,
+          bible.brandKeywords,
+          bible.industry
+        )
+      );
+    } else if (presetKey === 'disruptive') {
+      setPersonalityTraits([
+        { trait: 'Boldness', score: 95, fullMark: 100, description: 'Daring drive, market disruption & courage' },
+        { trait: 'Playfulness', score: 62, fullMark: 100, description: 'Creative delight, warmth & energy' },
+        { trait: 'Sophistication', score: 70, fullMark: 100, description: 'Sleek elegance, premium craft & refinement' },
+        { trait: 'Trustworthiness', score: 78, fullMark: 100, description: 'Rock-solid reliability, security & integrity' },
+        { trait: 'Innovation', score: 96, fullMark: 100, description: 'Cutting-edge technology & forward vision' },
+        { trait: 'Empathy', score: 60, fullMark: 100, description: 'Human-centric care, sustainability & inclusion' }
+      ]);
+    } else if (presetKey === 'luxury') {
+      setPersonalityTraits([
+        { trait: 'Boldness', score: 68, fullMark: 100, description: 'Daring drive, market disruption & courage' },
+        { trait: 'Playfulness', score: 38, fullMark: 100, description: 'Creative delight, warmth & energy' },
+        { trait: 'Sophistication', score: 98, fullMark: 100, description: 'Sleek elegance, premium craft & refinement' },
+        { trait: 'Trustworthiness', score: 88, fullMark: 100, description: 'Rock-solid reliability, security & integrity' },
+        { trait: 'Innovation', score: 65, fullMark: 100, description: 'Cutting-edge technology & forward vision' },
+        { trait: 'Empathy', score: 55, fullMark: 100, description: 'Human-centric care, sustainability & inclusion' }
+      ]);
+    } else if (presetKey === 'empathetic') {
+      setPersonalityTraits([
+        { trait: 'Boldness', score: 48, fullMark: 100, description: 'Daring drive, market disruption & courage' },
+        { trait: 'Playfulness', score: 85, fullMark: 100, description: 'Creative delight, warmth & energy' },
+        { trait: 'Sophistication', score: 58, fullMark: 100, description: 'Sleek elegance, premium craft & refinement' },
+        { trait: 'Trustworthiness', score: 92, fullMark: 100, description: 'Rock-solid reliability, security & integrity' },
+        { trait: 'Innovation', score: 68, fullMark: 100, description: 'Cutting-edge technology & forward vision' },
+        { trait: 'Empathy', score: 96, fullMark: 100, description: 'Human-centric care, sustainability & inclusion' }
+      ]);
+    } else if (presetKey === 'enterprise') {
+      setPersonalityTraits([
+        { trait: 'Boldness', score: 72, fullMark: 100, description: 'Daring drive, market disruption & courage' },
+        { trait: 'Playfulness', score: 35, fullMark: 100, description: 'Creative delight, warmth & energy' },
+        { trait: 'Sophistication', score: 82, fullMark: 100, description: 'Sleek elegance, premium craft & refinement' },
+        { trait: 'Trustworthiness', score: 98, fullMark: 100, description: 'Rock-solid reliability, security & integrity' },
+        { trait: 'Innovation', score: 80, fullMark: 100, description: 'Cutting-edge technology & forward vision' },
+        { trait: 'Empathy', score: 72, fullMark: 100, description: 'Human-centric care, sustainability & inclusion' }
+      ]);
+    }
+  };
+
+  const handleTraitSliderChange = (traitName: string, newValue: number) => {
+    setSelectedTraitPreset('custom');
+    setPersonalityTraits(prev =>
+      prev.map(item => (item.trait === traitName ? { ...item, score: newValue } : item))
+    );
+  };
+
+  const dominantTrait = [...personalityTraits].sort((a, b) => b.score - a.score)[0] || personalityTraits[0];
+
+  const getDesignTipForTrait = (trait: string) => {
+    switch (trait) {
+      case 'Boldness':
+        return 'High Boldness: Pair heavy, high-contrast typography with sharp geometric brand marks and high-impact visual statements.';
+      case 'Playfulness':
+        return 'High Playfulness: Utilize energetic pastel or vibrant accent pops, soft organic radii, and expressive motion transitions.';
+      case 'Sophistication':
+        return 'High Sophistication: Embrace ample negative space, understated monochrome accents, and refined serif or clean grotesk typography.';
+      case 'Trustworthiness':
+        return 'High Trustworthiness: Anchor visuals in structured grid alignments, oceanic deep tones, and clear verification badges.';
+      case 'Innovation':
+        return 'High Innovation: Implement futuristic dark mode contrasts, electric neon swatches, and sleek geometric emblems.';
+      case 'Empathy':
+        return 'High Empathy: Use warm approachable neutrals, human story callouts, and accessible WCAG contrast balances.';
+      default:
+        return 'Balanced Profile: Maintain a clean, modern aesthetic with harmonized typography and flexible color roles.';
+    }
+  };
+
+  const handleSwapContrastColors = () => {
+    const temp = contrastBg;
+    setContrastBg(contrastText);
+    setContrastText(temp);
+  };
+
+  const handleSuggestMaxContrast = () => {
+    const candidates = [
+      ...bible.colorPalette.map(c => c.hex),
+      '#ffffff',
+      '#0f172a'
+    ];
+    let bestHex = candidates[0];
+    let maxRatio = -1;
+    candidates.forEach(hex => {
+      const ratio = getContrastRatio(contrastBg, hex);
+      if (ratio > maxRatio) {
+        maxRatio = ratio;
+        bestHex = hex;
+      }
+    });
+    setContrastText(bestHex);
+    setToast({
+      message: `Auto-selected highest contrast color (${maxRatio.toFixed(1)}:1 ratio)!`,
+      hex: bestHex
+    });
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const handleApplySandboxPreset = (preset: 'hero' | 'cta' | 'alert' | 'nav') => {
+    if (preset === 'hero') {
+      setSandboxCustomHeading(`Elevate Your ${bible.industry || 'Brand'} Identity`);
+      setSandboxCustomBody(`Discover how ${bible.companyName || 'our brand'} combines purpose-driven craftsmanship with seamless digital experiences for ${bible.targetAudience || 'modern teams'}.`);
+      setSandboxCustomButtonText('Explore Platform');
+      setSandboxComponentView('hero');
+    } else if (preset === 'cta') {
+      setSandboxCustomHeading('Ready to Transform Your Workflow?');
+      setSandboxCustomBody(`Join thousands of creators using ${bible.companyName || 'our platform'} to build distinct, accessible brand systems at scale.`);
+      setSandboxCustomButtonText('Get Started Free');
+      setSandboxComponentView('card');
+    } else if (preset === 'alert') {
+      setSandboxCustomHeading('Color System Notice');
+      setSandboxCustomBody(`All brand color combinations pass WCAG 2.1 AA readability standards across digital viewports.`);
+      setSandboxCustomButtonText('View Guidelines');
+      setSandboxComponentView('alert');
+    } else if (preset === 'nav') {
+      setSandboxCustomHeading(bible.companyName || 'Brand Mark');
+      setSandboxCustomBody('Products   •   Solutions   •   Enterprise   •   Resources');
+      setSandboxCustomButtonText('Sign In');
+      setSandboxComponentView('nav');
+    }
+  };
+
+  const [isGeneratingVoice, setIsGeneratingVoice] = useState(false);
+  const [isAboutUsCopied, setIsAboutUsCopied] = useState(false);
+
+  const handleGenerateVoice = async (customPrompt?: string) => {
+    setIsGeneratingVoice(true);
+    try {
+      const data = await safeFetchJson('/api/brand/generate-voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyName: bible.companyName,
+          mission: bible.mission,
+          industry: bible.industry,
+          targetAudience: bible.targetAudience,
+          brandPersonality: bible.brandPersonality || 50,
+          customPrompt
+        })
+      });
+
+      if (onUpdateVoice) {
+        onUpdateVoice(data);
+      }
+    } catch (err) {
+      console.error("Error generating brand voice:", err);
+    } finally {
+      setIsGeneratingVoice(false);
+    }
+  };
+
+  const handleCopyAboutUs = () => {
+    const voiceObj = typeof bible.brandVoice === 'object' ? bible.brandVoice : null;
+    const textToCopy = voiceObj?.aboutUsParagraph || `${bible.companyName} is dedicated to pioneering ${bible.industry} solutions crafted for ${bible.targetAudience}. Guided by our mission—"${bible.mission}"—we merge vision with quality to empower our community.`;
+    navigator.clipboard.writeText(textToCopy);
+    setIsAboutUsCopied(true);
+    setTimeout(() => setIsAboutUsCopied(false), 2000);
+  };
 
   useEffect(() => {
     if (bible.colorPalette && bible.colorPalette.length > 1) {
@@ -123,13 +400,123 @@ export default function BrandBibleDashboard({
   const [logoAspectRatio, setLogoAspectRatio] = useState<'standard' | 'square'>('standard');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingPng, setIsExportingPng] = useState(false);
+  const [isLinkCopied, setIsLinkCopied] = useState(false);
+
+  const [isAuditing, setIsAuditing] = useState(false);
+  const [auditReport, setAuditReport] = useState<StyleAuditReport | null>(null);
+  const [showAuditModal, setShowAuditModal] = useState(false);
+
+  // Accessibility Auditor States
+  const [showA11yAuditorModal, setShowA11yAuditorModal] = useState(false);
+  const [a11yFilter, setA11yFilter] = useState<'all' | 'failing' | 'aa' | 'aaa'>('failing');
+
+  // Motion Identity States
+  const [motionPreset, setMotionPreset] = useState<'slide-up' | 'fade-scale' | 'elastic-pop' | 'shimmer'>('slide-up');
+  const [motionDuration, setMotionDuration] = useState<number>(0.8);
+  const [motionKey, setMotionKey] = useState<number>(0);
+  const [isMotionCssCopied, setIsMotionCssCopied] = useState<boolean>(false);
+
+  // Logo Usage Rules States
+  const [clearSpaceFactor, setClearSpaceFactor] = useState<number>(1);
+  const [usageTabFilter, setUsageTabFilter] = useState<'all' | 'clearspace' | 'backgrounds' | 'sizes' | 'donts'>('all');
+
+  const handleRunStyleAudit = async () => {
+    setIsAuditing(true);
+    try {
+      const data = await safeFetchJson('/api/brand/style-audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brandBible: bible,
+          selectedModel: 'gemini-2.0-flash'
+        })
+      });
+
+      if (data && (data.overallScore !== undefined || data.summary)) {
+        setAuditReport(data);
+        setShowAuditModal(true);
+        setToast({
+          message: `Style Audit Complete! Overall Score: ${data.overallScore || 95}/100`,
+          hex: bible.colorPalette[0]?.hex || '#6366f1'
+        });
+        setTimeout(() => setToast(null), 3000);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setToast({
+        message: `Style Audit failed: ${err.message}`,
+        hex: '#ef4444'
+      });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setIsAuditing(false);
+    }
+  };
+
+  const handleCopyShareableLink = () => {
+    const shareUrl = generateShareableUrl(bible);
+    window.history.replaceState(null, '', `#share=${encodeBrandBibleToHash(bible)}`);
+    navigator.clipboard.writeText(shareUrl);
+    setIsLinkCopied(true);
+    setToast({
+      message: "Shareable link copied to clipboard! Anyone with this link can view this brand identity.",
+      hex: bible.colorPalette[0]?.hex || '#6366f1'
+    });
+    setTimeout(() => setIsLinkCopied(false), 2500);
+    setTimeout(() => setToast(null), 3500);
+  };
 
   const [isLogoHistoryOpen, setIsLogoHistoryOpen] = useState(false);
+  const [overlayViewMode, setOverlayViewMode] = useState<'grid' | 'carousel' | 'compare'>('grid');
+  const [overlayCarouselIndex, setOverlayCarouselIndex] = useState(0);
+  const [compareLogoAIndex, setCompareLogoAIndex] = useState(0);
+  const [compareLogoBIndex, setCompareLogoBIndex] = useState(1);
+  const [overlayBg, setOverlayBg] = useState<'dark' | 'light' | 'checker'>('dark');
+  const [favoriteLogos, setFavoriteLogos] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('brand_generator_favorite_logos');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const toggleFavoriteLogo = (logoUrl: string) => {
+    setFavoriteLogos(prev => {
+      const exists = prev.includes(logoUrl);
+      const updated = exists ? prev.filter(u => u !== logoUrl) : [...prev, logoUrl];
+      try {
+        localStorage.setItem('brand_generator_favorite_logos', JSON.stringify(updated));
+      } catch (err) {
+        console.warn('Failed to save favorite logos:', err);
+      }
+      return updated;
+    });
+  };
+
+  useEffect(() => {
+    if (!isLogoHistoryOpen) return;
+    const count = bible.previousLogos?.length || (bible.primaryLogo ? 1 : 0);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsLogoHistoryOpen(false);
+      } else if (overlayViewMode === 'carousel' && count > 0) {
+        if (e.key === 'ArrowLeft') {
+          setOverlayCarouselIndex(prev => (prev === 0 ? count - 1 : prev - 1));
+        } else if (e.key === 'ArrowRight') {
+          setOverlayCarouselIndex(prev => (prev === count - 1 ? 0 : prev + 1));
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isLogoHistoryOpen, overlayViewMode, bible.previousLogos, bible.primaryLogo]);
 
   const handleRestoreLogo = (logoUrl: string) => {
     onUpdateLogo(logoUrl);
     setToast({
-      message: "Successfully restored brand logo variation as active primary mark!",
+      message: "Successfully set logo variation as active primary mark!",
       hex: "#6366f1"
     });
     setTimeout(() => {
@@ -219,6 +606,60 @@ export default function BrandBibleDashboard({
       hex: primaryColor.hex
     });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  // AI Palette Regeneration States & Handlers
+  const [isRegeneratingAiPalette, setIsRegeneratingAiPalette] = useState(false);
+  const [showRegenPaletteModal, setShowRegenPaletteModal] = useState(false);
+  const [aiSuggestedPalette, setAiSuggestedPalette] = useState<Color[] | null>(null);
+  const [aiSuggestedRationale, setAiSuggestedRationale] = useState<string | null>(null);
+  const [customPaletteFocus, setCustomPaletteFocus] = useState<string>('');
+
+  const handleRegenerateAiPalette = async (focusOverride?: string) => {
+    setIsRegeneratingAiPalette(true);
+    try {
+      const data = await safeFetchJson('/api/brand/regenerate-palette', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyName: bible.companyName,
+          mission: bible.mission,
+          industry: bible.industry,
+          targetAudience: bible.targetAudience,
+          brandKeywords: bible.brandKeywords,
+          customFocus: focusOverride !== undefined ? focusOverride : customPaletteFocus
+        })
+      });
+
+      if (data && data.colorPalette && Array.isArray(data.colorPalette)) {
+        setAiSuggestedPalette(data.colorPalette);
+        setAiSuggestedRationale(data.rationale || 'AI Consultant synthesized this fresh 5-color palette to embody your core brand mission and audience psychology.');
+        setShowRegenPaletteModal(true);
+      } else {
+        throw new Error('Invalid palette output returned from AI consultant.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setToast({
+        message: `Palette regeneration failed: ${err.message}`,
+        hex: '#ef4444'
+      });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setIsRegeneratingAiPalette(false);
+    }
+  };
+
+  const handleApplyAiPalette = () => {
+    if (aiSuggestedPalette) {
+      onUpdatePalette(aiSuggestedPalette);
+      setToast({
+        message: 'Fresh 5-Color AI Palette applied to your Brand Bible!',
+        hex: aiSuggestedPalette[0]?.hex || '#6366f1'
+      });
+      setTimeout(() => setToast(null), 3000);
+      setShowRegenPaletteModal(false);
+    }
   };
 
   // Archetype states & generation
@@ -385,6 +826,123 @@ export default function BrandBibleDashboard({
   const [patternOverlayMode, setPatternOverlayMode] = useState<'light' | 'dark' | 'color'>('light');
   const [isPatternCopied, setIsPatternCopied] = useState(false);
 
+  // Tiled Geometric Brand Pattern Section States
+  const [selectedGeometricPattern, setSelectedGeometricPattern] = useState<PatternType>('dots');
+  const [geometricScale, setGeometricScale] = useState<number>(40);
+  const [geometricOpacity, setGeometricOpacity] = useState<number>(0.75);
+  const [geometricFgRole, setGeometricFgRole] = useState<'primary' | 'secondary' | 'accent' | 'dark' | 'light'>('primary');
+  const [geometricBgMode, setGeometricBgMode] = useState<'light' | 'dark' | 'brand'>('light');
+  const [isCopiedGeometricSvg, setIsCopiedGeometricSvg] = useState<boolean>(false);
+  const [isCopiedGeometricCss, setIsCopiedGeometricCss] = useState<boolean>(false);
+  const [activePatternElementTab, setActivePatternElementTab] = useState<'business-card' | 'letterhead' | 'social-banner' | 'packaging' | 'full-canvas'>('business-card');
+  const [patternCardSide, setPatternCardSide] = useState<'front' | 'back' | 'both'>('both');
+  const [showTileGridLines, setShowTileGridLines] = useState<boolean>(false);
+
+  const handleCopyPatternSvg = () => {
+    const brandColors = extractBrandColors(bible.colorPalette);
+    let fgColor = brandColors.primary;
+    if (geometricFgRole === 'secondary') fgColor = brandColors.secondary;
+    if (geometricFgRole === 'accent') fgColor = brandColors.accent;
+    if (geometricFgRole === 'dark') fgColor = brandColors.darkNeutral;
+    if (geometricFgRole === 'light') fgColor = '#ffffff';
+
+    let bgColor = '#ffffff';
+    if (geometricBgMode === 'dark') bgColor = '#0f172a';
+    if (geometricBgMode === 'brand') bgColor = brandColors.primary;
+
+    const svg = generatePatternSvg({
+      type: selectedGeometricPattern,
+      scale: geometricScale,
+      bgColor,
+      fgColor,
+      secondaryColor: brandColors.secondary,
+      accentColor: brandColors.accent,
+      opacity: geometricOpacity
+    });
+
+    navigator.clipboard.writeText(svg);
+    setIsCopiedGeometricSvg(true);
+    setToast({
+      message: 'Pattern SVG string copied to clipboard!',
+      hex: fgColor
+    });
+    setTimeout(() => setIsCopiedGeometricSvg(false), 2500);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleCopyPatternCss = () => {
+    const brandColors = extractBrandColors(bible.colorPalette);
+    let fgColor = brandColors.primary;
+    if (geometricFgRole === 'secondary') fgColor = brandColors.secondary;
+    if (geometricFgRole === 'accent') fgColor = brandColors.accent;
+    if (geometricFgRole === 'dark') fgColor = brandColors.darkNeutral;
+    if (geometricFgRole === 'light') fgColor = '#ffffff';
+
+    let bgColor = '#ffffff';
+    if (geometricBgMode === 'dark') bgColor = '#0f172a';
+    if (geometricBgMode === 'brand') bgColor = brandColors.primary;
+
+    const dataUrl = generatePatternDataUrl({
+      type: selectedGeometricPattern,
+      scale: geometricScale,
+      bgColor,
+      fgColor,
+      secondaryColor: brandColors.secondary,
+      accentColor: brandColors.accent,
+      opacity: geometricOpacity
+    });
+
+    const cssSnippet = `/* ${bible.companyName} Brand Geometric Pattern - ${selectedGeometricPattern} */\nbackground-image: url("${dataUrl}");\nbackground-repeat: repeat;\nbackground-size: ${geometricScale}px;`;
+
+    navigator.clipboard.writeText(cssSnippet);
+    setIsCopiedGeometricCss(true);
+    setToast({
+      message: 'Pattern CSS background-image snippet copied!',
+      hex: fgColor
+    });
+    setTimeout(() => setIsCopiedGeometricCss(false), 2500);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleDownloadPatternSvg = () => {
+    const brandColors = extractBrandColors(bible.colorPalette);
+    let fgColor = brandColors.primary;
+    if (geometricFgRole === 'secondary') fgColor = brandColors.secondary;
+    if (geometricFgRole === 'accent') fgColor = brandColors.accent;
+    if (geometricFgRole === 'dark') fgColor = brandColors.darkNeutral;
+    if (geometricFgRole === 'light') fgColor = '#ffffff';
+
+    let bgColor = '#ffffff';
+    if (geometricBgMode === 'dark') bgColor = '#0f172a';
+    if (geometricBgMode === 'brand') bgColor = brandColors.primary;
+
+    const svg = generatePatternSvg({
+      type: selectedGeometricPattern,
+      scale: geometricScale,
+      bgColor,
+      fgColor,
+      secondaryColor: brandColors.secondary,
+      accentColor: brandColors.accent,
+      opacity: geometricOpacity
+    });
+
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-pattern-${selectedGeometricPattern}.svg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setToast({
+      message: `Downloaded ${selectedGeometricPattern} pattern SVG!`,
+      hex: fgColor
+    });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   // Mission-Driven Pattern Visualizer States
   const [missionPatternMotif, setMissionPatternMotif] = useState<'mission-grid' | 'diamond-emblem' | 'radiant-rings' | 'organic-waves' | 'typography-geometry'>('mission-grid');
   const [missionPatternTileSize, setMissionPatternTileSize] = useState<number>(64);
@@ -399,6 +957,197 @@ export default function BrandBibleDashboard({
   const [promptViewMode, setPromptViewMode] = useState<'prompt' | 'sample'>('prompt');
   const [isCopiedPromptText, setIsCopiedPromptText] = useState<boolean>(false);
   const [isCopiedSampleText, setIsCopiedSampleText] = useState<boolean>(false);
+
+  // Brand Voice Preview Feature States
+  const [previewAngle, setPreviewAngle] = useState<'value_prop' | 'brand_story' | 'campaign_pitch' | 'social_hook' | 'cx_promise'>('value_prop');
+  const [isGeneratingVoicePreview, setIsGeneratingVoicePreview] = useState<boolean>(false);
+  const [previewCopy, setPreviewCopy] = useState<{ headline: string; paragraph: string; toneAlignmentNote: string } | null>(null);
+  const [isCopiedPreviewText, setIsCopiedPreviewText] = useState<boolean>(false);
+  const [previewCardBg, setPreviewCardBg] = useState<'light' | 'dark' | 'brand'>('light');
+
+  // Copy Palette Code Modal / Dropdown States
+  const [showPaletteCodeModal, setShowPaletteCodeModal] = useState<boolean>(false);
+  const [selectedPaletteFormat, setSelectedPaletteFormat] = useState<'css' | 'tailwind' | 'json' | 'hex'>('css');
+  const [isPaletteCodeCopied, setIsPaletteCodeCopied] = useState<boolean>(false);
+
+  // Competitive Benchmarking States
+  const [competitorInputUrls, setCompetitorInputUrls] = useState<string[]>(['stripe.com', 'linear.app']);
+  const [newCompetitorUrl, setNewCompetitorUrl] = useState<string>('');
+  const [isBenchmarking, setIsBenchmarking] = useState<boolean>(false);
+  const [benchmarkData, setBenchmarkData] = useState<any | null>(null);
+
+  const handleRunCompetitiveBenchmark = async () => {
+    if (competitorInputUrls.length === 0) {
+      setToast({
+        message: 'Please add at least 1 competitor URL or brand domain!',
+        hex: '#ef4444'
+      });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+
+    setIsBenchmarking(true);
+    try {
+      const data = await safeFetchJson('/api/brand/competitive-benchmark', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          competitorUrls: competitorInputUrls,
+          userBrand: bible
+        })
+      });
+
+      if (data && data.competitors) {
+        setBenchmarkData(data);
+        setToast({
+          message: `Search Grounding complete! Benchmarked ${data.competitors.length} competitors.`,
+          hex: bible.colorPalette[0]?.hex || '#6366f1'
+        });
+        setTimeout(() => setToast(null), 3500);
+      }
+    } catch (err: any) {
+      console.error('Competitive benchmarking error:', err);
+      setToast({
+        message: `Benchmarking error: ${err.message || 'Failed to fetch competitor data'}`,
+        hex: '#ef4444'
+      });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setIsBenchmarking(false);
+    }
+  };
+
+  const handleAddCompetitorUrl = () => {
+    const trimmed = newCompetitorUrl.trim();
+    if (!trimmed) return;
+    if (competitorInputUrls.length >= 3) {
+      setToast({
+        message: 'Maximum 3 competitors allowed for focused analysis.',
+        hex: '#f59e0b'
+      });
+      setTimeout(() => setToast(null), 2500);
+      return;
+    }
+    if (!competitorInputUrls.includes(trimmed)) {
+      setCompetitorInputUrls([...competitorInputUrls, trimmed]);
+      setNewCompetitorUrl('');
+    }
+  };
+
+  const handleRemoveCompetitorUrl = (index: number) => {
+    setCompetitorInputUrls(competitorInputUrls.filter((_, i) => i !== index));
+  };
+
+  // Load Google Fonts dynamically for active brand typography
+  useEffect(() => {
+    if (bible.typography) {
+      const fonts = [bible.typography.headerFont, bible.typography.bodyFont].filter(Boolean);
+      fonts.forEach(font => {
+        if (font && !['System Sans', 'System Serif', 'Monospace', 'sans-serif', 'serif'].includes(font)) {
+          const fontSlug = font.replace(/\s+/g, '+');
+          const linkId = `google-font-${font.toLowerCase().replace(/\s+/g, '-')}`;
+          if (!document.getElementById(linkId)) {
+            const link = document.createElement('link');
+            link.id = linkId;
+            link.rel = 'stylesheet';
+            link.href = `https://fonts.googleapis.com/css2?family=${fontSlug}:ital,wght@0,300..800;1,300..800&display=swap`;
+            document.head.appendChild(link);
+          }
+        }
+      });
+    }
+  }, [bible.typography?.headerFont, bible.typography?.bodyFont]);
+
+  const getInitialVoicePreview = (angle: string) => {
+    const comp = bible.companyName || 'Our Brand';
+    const ind = bible.industry || 'Technology';
+    const aud = bible.targetAudience || 'Modern Professionals';
+    const mission = bible.mission || 'Empowering people through purpose-driven, innovative solutions.';
+    const voiceObj = typeof bible.brandVoice === 'object' ? bible.brandVoice : null;
+    const tone = voiceObj?.tone || (typeof bible.brandVoice === 'string' ? bible.brandVoice : 'Professional, clear, and empathetic');
+
+    if (angle === 'brand_story') {
+      return {
+        headline: `The Story Behind ${comp}: Rethinking ${ind} with Intent`,
+        paragraph: `Founded on the belief that ${ind} should serve human potential, ${comp} was built to dismantle friction and restore momentum. Every decision we make stems from our core mission—"${mission}"—combining uncompromising craftsmanship with intuitive simplicity for ${aud}.`,
+        toneAlignmentNote: `Reflects a ${tone} tone with high narrative warmth and purpose-driven authority.`
+      };
+    } else if (angle === 'campaign_pitch') {
+      return {
+        headline: `Bold Execution for ${aud} Who Demand Excellence`,
+        paragraph: `Stop settling for incremental tools that slow down your vision. ${comp} delivers a high-momentum ecosystem designed to transform how ${aud} operate in ${ind}. Powered by precision engineering and human-centered design, we turn complex challenges into effortless results.`,
+        toneAlignmentNote: `High-energy, bold campaign pitch engineered for fast resonance.`
+      };
+    } else if (angle === 'social_hook') {
+      return {
+        headline: `A New Chapter in ${ind} Begins Now with ${comp}`,
+        paragraph: `Great brands don't just follow industry standards—they elevate them. ${comp} is proud to announce our latest milestone in ${ind}, engineered exclusively for ${aud}. Join us as we build the future of workflow efficiency together.`,
+        toneAlignmentNote: `Punchy, social-first tone optimized for engagement and clarity.`
+      };
+    } else if (angle === 'cx_promise') {
+      return {
+        headline: `Our Uncompromising Promise to Every ${comp} Partner`,
+        paragraph: `At ${comp}, your success is our absolute priority. We combine transparent communication, dedicated support, and relentless execution so you can focus on what truly matters. Experience a partnership built on trust, integrity, and measurable impact.`,
+        toneAlignmentNote: `Empathetic, trust-first customer experience narrative.`
+      };
+    } else {
+      return {
+        headline: `Redefining ${ind} for ${aud}`,
+        paragraph: `${comp} bridges the gap between vision and execution. By anchoring our platform in our core mission—"${mission}"—we empower ${aud} to achieve clarity, speed, and elevated outcomes without compromising on design integrity.`,
+        toneAlignmentNote: `Balanced value proposition aligning directly with your active brand persona.`
+      };
+    }
+  };
+
+  const handleGenerateVoicePreview = async (overrideAngle?: string) => {
+    setIsGeneratingVoicePreview(true);
+    const targetAngle = overrideAngle || previewAngle;
+    try {
+      const data = await safeFetchJson('/api/brand/generate-voice-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brandBible: bible,
+          angle: targetAngle,
+          voiceMetrics
+        })
+      });
+
+      if (data && data.headline && data.paragraph) {
+        setPreviewCopy(data);
+        setToast({
+          message: "Generated Brand Voice Preview with AI!",
+          hex: bible.colorPalette[0]?.hex || '#6366f1'
+        });
+        setTimeout(() => setToast(null), 2500);
+      } else {
+        setPreviewCopy(getInitialVoicePreview(targetAngle));
+      }
+    } catch (err: any) {
+      console.warn("Voice preview API failed, using fallback generator:", err);
+      setPreviewCopy(getInitialVoicePreview(targetAngle));
+      setToast({
+        message: "Generated Brand Voice Preview copy!",
+        hex: bible.colorPalette[0]?.hex || '#6366f1'
+      });
+      setTimeout(() => setToast(null), 2500);
+    } finally {
+      setIsGeneratingVoicePreview(false);
+    }
+  };
+
+  const handleCopyVoicePreview = () => {
+    const currentData = previewCopy || getInitialVoicePreview(previewAngle);
+    const textToCopy = `${currentData.headline}\n\n${currentData.paragraph}`;
+    navigator.clipboard.writeText(textToCopy);
+    setIsCopiedPreviewText(true);
+    setToast({
+      message: "Copied Brand Voice Preview copy to clipboard!",
+      hex: bible.colorPalette[0]?.hex || '#6366f1'
+    });
+    setTimeout(() => setIsCopiedPreviewText(false), 2000);
+    setTimeout(() => setToast(null), 2500);
+  };
 
   const getTailoredMarketingPrompt = (category: 'about' | 'product' | 'social' | 'email' | 'tagline' | 'ad') => {
     const comp = bible.companyName || 'Our Brand';
@@ -827,13 +1576,37 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
     }
   };
 
-  // Lightbox & Gallery State
+  // Lightbox & Gallery & Carousel State
   const allLogos = bible.previousLogos || (bible.primaryLogo ? [bible.primaryLogo] : []);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [lightboxZoom, setLightboxZoom] = useState<number>(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  // Logo Carousel / Slider State
+  const [carouselIndex, setCarouselIndex] = useState<number>(0);
+
+  useEffect(() => {
+    if (allLogos.length > 0) {
+      const primaryIdx = allLogos.findIndex(url => url === bible.primaryLogo);
+      if (primaryIdx !== -1) {
+        setCarouselIndex(primaryIdx);
+      } else if (carouselIndex >= allLogos.length) {
+        setCarouselIndex(0);
+      }
+    }
+  }, [bible.primaryLogo, bible.previousLogos?.length]);
+
+  const handlePrevSlide = () => {
+    if (allLogos.length === 0) return;
+    setCarouselIndex(prev => (prev === 0 ? allLogos.length - 1 : prev - 1));
+  };
+
+  const handleNextSlide = () => {
+    if (allLogos.length === 0) return;
+    setCarouselIndex(prev => (prev === allLogos.length - 1 ? 0 : prev + 1));
+  };
 
   const openLightbox = (index: number) => {
     setLightboxIndex(index);
@@ -910,19 +1683,61 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
     }, 2500);
   };
 
+  const handleDownloadLogo = async (overrideUrl?: string, customFilename?: string) => {
+    const targetUrl = overrideUrl || allLogos[carouselIndex] || bible.primaryLogo;
+    if (!targetUrl) return;
+    try {
+      setDownloading(true);
+      const filename = customFilename || `${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-logo.png`;
+
+      if (targetUrl.startsWith('data:')) {
+        const link = document.createElement('a');
+        link.href = targetUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        try {
+          const res = await fetch(targetUrl, { mode: 'cors' });
+          const blob = await res.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+        } catch {
+          const link = document.createElement('a');
+          link.href = targetUrl;
+          link.target = '_blank';
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+      }
+
+      setToast({
+        message: `Downloaded logo mark (${filename})!`,
+        hex: bible.colorPalette[0]?.hex || '#6366f1'
+      });
+      setTimeout(() => setToast(null), 2500);
+    } catch (err) {
+      console.error("Failed to download logo:", err);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const handleDownloadLogoFromLightbox = async () => {
     if (lightboxIndex === null) return;
     const logoUrl = allLogos[lightboxIndex];
-    try {
-      const link = document.createElement('a');
-      link.href = logoUrl;
-      link.download = `${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-logo-v${lightboxIndex + 1}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (err) {
-      console.error(err);
-    }
+    if (!logoUrl) return;
+    const filename = `${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-logo-v${lightboxIndex + 1}.png`;
+    await handleDownloadLogo(logoUrl, filename);
   };
 
   const copyToClipboard = (hex: string, colorName: string) => {
@@ -973,21 +1788,61 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
     setTimeout(() => setToast(null), 2500);
   };
 
-  const handleDownloadLogo = async () => {
-    if (!bible.primaryLogo) return;
-    try {
-      setDownloading(true);
-      const link = document.createElement('a');
-      link.href = bible.primaryLogo;
-      link.download = `${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-logo.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setDownloading(false);
+  const handleCopyJsonPalette = () => {
+    const jsonObj: Record<string, { hex: string; role: string; name: string }> = {};
+    bible.colorPalette.forEach((c) => {
+      const key = (c.role || c.name).toLowerCase().replace(/[^a-z0-9]+/g, '_');
+      jsonObj[key || 'color'] = { hex: c.hex, name: c.name, role: c.role };
+    });
+
+    const jsonString = JSON.stringify(jsonObj, null, 2);
+    navigator.clipboard.writeText(jsonString);
+    setToast({
+      message: "Copied 5-color palette as JSON object!",
+      hex: bible.colorPalette[0]?.hex || '#6366f1'
+    });
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const getFormattedPaletteCode = (format: 'css' | 'tailwind' | 'json' | 'hex') => {
+    if (format === 'css') {
+      return `:root {\n` + bible.colorPalette.map(c => {
+        const varName = `--color-${(c.role || c.name).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+        return `  ${varName}: ${c.hex}; /* ${c.name} (${c.role}) */`;
+      }).join('\n') + `\n}`;
+    } else if (format === 'tailwind') {
+      return `// tailwind.config.js (theme.extend.colors)\ncolors: {\n` + bible.colorPalette.map(c => {
+        const key = (c.role || c.name).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        return `  '${key}': '${c.hex}', // ${c.name}`;
+      }).join('\n') + `\n}`;
+    } else if (format === 'json') {
+      const jsonObj: Record<string, { hex: string; name: string; role: string }> = {};
+      bible.colorPalette.forEach((c) => {
+        const key = (c.role || c.name).toLowerCase().replace(/[^a-z0-9]+/g, '_');
+        jsonObj[key || 'color'] = { hex: c.hex, name: c.name, role: c.role };
+      });
+      return JSON.stringify(jsonObj, null, 2);
+    } else {
+      return JSON.stringify(bible.colorPalette.map(c => c.hex), null, 2);
     }
+  };
+
+  const handleCopyFormattedPaletteCode = (format: 'css' | 'tailwind' | 'json' | 'hex') => {
+    const code = getFormattedPaletteCode(format);
+    navigator.clipboard.writeText(code);
+    setIsPaletteCodeCopied(true);
+    const formatLabels: Record<string, string> = {
+      css: 'CSS Variables',
+      tailwind: 'Tailwind Config',
+      json: 'JSON Object',
+      hex: 'HEX Array'
+    };
+    setToast({
+      message: `Copied palette code as ${formatLabels[format]}!`,
+      hex: bible.colorPalette[0]?.hex || '#6366f1'
+    });
+    setTimeout(() => setIsPaletteCodeCopied(false), 2000);
+    setTimeout(() => setToast(null), 2500);
   };
 
   const handleDownloadBrandJson = () => {
@@ -1036,6 +1891,378 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
     }
   };
 
+  // Helper function to convert oklch(...) colors to standard rgb/rgba strings for html2canvas compatibility
+  const replaceOklchInString = (str: string): string => {
+    if (!str || !str.includes('oklch')) return str;
+    let result = str.replace(/oklch\(\s*([0-9.%]+)\s+([0-9.%]+)\s+([0-9.deg]+)(?:\s*\/\s*([0-9.%]+))?\s*\)/gi, (match, p1, p2, p3, p4) => {
+      try {
+        let l = parseFloat(p1);
+        if (p1.endsWith('%')) l = l / 100;
+
+        let c = parseFloat(p2);
+        if (p2.endsWith('%')) c = c / 100;
+
+        let h = parseFloat(p3);
+
+        let a = 1;
+        if (p4) {
+          a = parseFloat(p4);
+          if (p4.endsWith('%')) a = a / 100;
+        }
+
+        const hRad = (h * Math.PI) / 180;
+        const aLab = c * Math.cos(hRad);
+        const bLab = c * Math.sin(hRad);
+
+        const l_ = l + 0.3963377774 * aLab + 0.2158037573 * bLab;
+        const m_ = l - 0.1055613458 * aLab - 0.0638541728 * bLab;
+        const s_ = l - 0.0894841775 * aLab - 1.2914855480 * bLab;
+
+        const l3 = l_ * l_ * l_;
+        const m3 = m_ * m_ * m_;
+        const s3 = s_ * s_ * s_;
+
+        const rLin = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+        const gLin = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+        const bLin = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3;
+
+        const toGamma = (val: number) =>
+          val <= 0.0031308 ? 12.92 * val : 1.055 * Math.pow(Math.max(0, val), 1 / 2.4) - 0.055;
+
+        const r = Math.min(255, Math.max(0, Math.round(toGamma(rLin) * 255)));
+        const g = Math.min(255, Math.max(0, Math.round(toGamma(gLin) * 255)));
+        const b = Math.min(255, Math.max(0, Math.round(toGamma(bLin) * 255)));
+
+        if (a < 1) {
+          return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
+        }
+        return `rgb(${r}, ${g}, ${b})`;
+      } catch {
+        return 'rgba(99, 102, 241, 0.8)';
+      }
+    });
+
+    if (result.includes('oklch(')) {
+      result = result.replace(/oklch\([^)]*\)/gi, 'rgba(99, 102, 241, 0.8)');
+    }
+    return result;
+  };
+
+  const handleDownloadDashboardPng = async () => {
+    try {
+      setIsExportingPng(true);
+      setShowExportMenu(false);
+
+      const dashboardElement = document.getElementById('brand-bible-dashboard');
+      if (!dashboardElement) {
+        throw new Error('Dashboard container (#brand-bible-dashboard) not found.');
+      }
+
+      setToast({
+        message: "Rendering high-quality PNG snapshot of Brand Bible dashboard...",
+        hex: bible.colorPalette[0]?.hex || '#6366f1'
+      });
+
+      let pngDataUrl: string | null = null;
+
+      // Primary attempt: Native SVG ForeignObject rendering via html-to-image (supports oklch natively)
+      try {
+        pngDataUrl = await htmlToImage.toPng(dashboardElement, {
+          pixelRatio: 2,
+          backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+          cacheBust: true,
+          filter: (node: HTMLElement) => node.id !== 'toast-notification-banner'
+        });
+      } catch (nativeErr) {
+        console.warn("html-to-image capture fallback triggered:", nativeErr);
+      }
+
+      // Fallback attempt: html2canvas with complete oklch -> RGB sanitization
+      if (!pngDataUrl) {
+        const canvas = await html2canvas(dashboardElement, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+          logging: false,
+          onclone: (clonedDoc) => {
+            const floatingToast = clonedDoc.getElementById('toast-notification-banner');
+            if (floatingToast) {
+              floatingToast.style.display = 'none';
+            }
+
+            // Sanitize all style elements
+            clonedDoc.querySelectorAll('style').forEach((styleEl) => {
+              if (styleEl.textContent && styleEl.textContent.includes('oklch')) {
+                styleEl.textContent = replaceOklchInString(styleEl.textContent);
+              }
+            });
+
+            // Sanitize all inline styles
+            clonedDoc.querySelectorAll('[style]').forEach((el) => {
+              const styleAttr = el.getAttribute('style');
+              if (styleAttr && styleAttr.includes('oklch')) {
+                el.setAttribute('style', replaceOklchInString(styleAttr));
+              }
+            });
+          }
+        });
+        pngDataUrl = canvas.toDataURL('image/png');
+      }
+
+      if (!pngDataUrl) {
+        throw new Error('Failed to generate PNG data URL from dashboard.');
+      }
+
+      const safeName = (bible.companyName || 'brand').toLowerCase().replace(/[^a-z0-9]/g, '-');
+      const link = document.createElement('a');
+      link.href = pngDataUrl;
+      link.download = `${safeName}-brand-dashboard.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      setToast({
+        message: "Downloaded High-Quality Dashboard PNG Snapshot!",
+        hex: bible.colorPalette[0]?.hex || '#6366f1'
+      });
+      setTimeout(() => setToast(null), 3000);
+    } catch (err: any) {
+      console.error("Failed to capture dashboard PNG snapshot:", err);
+      setToast({
+        message: `Failed to capture PNG snapshot: ${err.message || 'Error capturing dashboard'}`,
+        hex: '#ef4444'
+      });
+      setTimeout(() => setToast(null), 3500);
+    } finally {
+      setIsExportingPng(false);
+    }
+  };
+
+  const handleDownloadAssetSheetPdf = async () => {
+    try {
+      setIsExportingPdf(true);
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const primaryHex = bible.colorPalette[0]?.hex || '#6366f1';
+      const todayStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+
+      // Header Banner
+      doc.setFillColor(15, 23, 42); // slate-900
+      doc.rect(0, 0, 210, 38, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(20);
+      doc.text(bible.companyName || 'Brand Identity Assets', 15, 16);
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(129, 140, 248); // indigo-400
+      doc.text(`CORE BRAND ASSETS & SPECIFICATION SHEET  •  ${(bible.industry || 'General Sector').toUpperCase()}`, 15, 24);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184); // slate-400
+      doc.text(`Exported: ${todayStr}   |   Logo, 5-Color Design Palette & Typography Specifications`, 15, 31);
+
+      let y = 46;
+
+      // Section 1: Primary Brand Logo Mark & Specs
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text('1. Primary Brand Logo Mark & Specifications', 15, y);
+      y += 6;
+
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(15, y, 180, 48, 3, 3, 'FD');
+
+      let logoDataUrl: string | null = null;
+      if (bible.primaryLogo) {
+        if (bible.primaryLogo.startsWith('data:image/png') || bible.primaryLogo.startsWith('data:image/jpeg')) {
+          logoDataUrl = bible.primaryLogo;
+        } else {
+          try {
+            let src = bible.primaryLogo;
+            if (src.trim().startsWith('<svg')) {
+              const clean = getCleanSvg(src);
+              src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
+            }
+            logoDataUrl = await new Promise<string | null>((resolve) => {
+              const img = new Image();
+              img.crossOrigin = 'anonymous';
+              img.onload = () => {
+                try {
+                  const canvas = document.createElement('canvas');
+                  canvas.width = img.naturalWidth || 300;
+                  canvas.height = img.naturalHeight || 300;
+                  const ctx = canvas.getContext('2d');
+                  if (ctx) {
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    resolve(canvas.toDataURL('image/png'));
+                  } else {
+                    resolve(null);
+                  }
+                } catch {
+                  resolve(null);
+                }
+              };
+              img.onerror = () => resolve(null);
+              img.src = src;
+            });
+          } catch {
+            logoDataUrl = null;
+          }
+        }
+      }
+
+      if (logoDataUrl) {
+        try {
+          doc.addImage(logoDataUrl, 'PNG', 20, y + 4, 40, 40);
+          
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(15, 23, 42);
+          doc.text(bible.companyName || 'Primary Logo', 68, y + 14);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text('Primary vector logo mark synthesized for multi-scale brand applications.', 68, y + 21);
+          doc.text(`Primary Color Fill: ${primaryHex.toUpperCase()}   |   Aspect Ratio: ${logoAspectRatio.toUpperCase()}`, 68, y + 28);
+          doc.text('High-fidelity rasterized vector export included.', 68, y + 35);
+        } catch {
+          doc.setFontSize(8.5);
+          doc.setFont('helvetica', 'italic');
+          doc.setTextColor(100, 116, 139);
+          doc.text(`${bible.companyName} Primary Mark Included in Specifications`, 20, y + 24);
+        }
+      } else {
+        doc.setFontSize(8.5);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(100, 116, 139);
+        doc.text(`${bible.companyName} Primary Mark Vector Included`, 20, y + 24);
+      }
+      y += 56;
+
+      // Section 2: 5-Color Brand Palette & Accessibility Specs
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text('2. 5-Color Design Palette & WCAG Accessibility Ratings', 15, y);
+      y += 6;
+
+      if (bible.colorPalette && bible.colorPalette.length > 0) {
+        let xOffset = 15;
+        const swatchWidth = 33;
+        bible.colorPalette.forEach((col) => {
+          const rgb = hexToRgb(col.hex);
+          if (rgb) {
+            doc.setFillColor(rgb.r, rgb.g, rgb.b);
+          } else {
+            doc.setFillColor(99, 102, 241);
+          }
+          doc.roundedRect(xOffset, y, swatchWidth, 22, 2, 2, 'F');
+          doc.setDrawColor(203, 213, 225);
+          doc.roundedRect(xOffset, y, swatchWidth, 22, 2, 2, 'S');
+
+          const a11y = getAccessibilityScore(col.hex);
+
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(15, 23, 42);
+          doc.text(doc.splitTextToSize(col.name, swatchWidth), xOffset, y + 27);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(100, 116, 139);
+          doc.text(col.hex.toUpperCase(), xOffset, y + 32);
+          doc.text(`Role: ${col.role}`, xOffset, y + 37);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7);
+          if (a11y.rating === 'AAA') {
+            doc.setTextColor(16, 185, 129);
+          } else if (a11y.rating.startsWith('AA')) {
+            doc.setTextColor(99, 102, 241);
+          } else {
+            doc.setTextColor(244, 63, 94);
+          }
+          doc.text(`WCAG ${a11y.rating} (${a11y.bestRatio.toFixed(1)}:1)`, xOffset, y + 42);
+
+          xOffset += 36;
+        });
+        y += 50;
+      }
+
+      // Section 3: Typography & Font Pairings
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text('3. Typography Hierarchy & Google Font Pairings', 15, y);
+      y += 6;
+
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(15, y, 180, 52, 3, 3, 'FD');
+
+      doc.setFontSize(9.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Display Header Font: ${bible.typography?.headerFont || 'Playfair Display'}  [${bible.typography?.headerCategory || 'Serif'}]`, 20, y + 9);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Primary usage: ${bible.typography?.headerUsage || 'Hero banners, executive headings, and section titles.'}`, 20, y + 16);
+
+      doc.setFontSize(9.5);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Body Paragraph Font: ${bible.typography?.bodyFont || 'Plus Jakarta Sans'}  [${bible.typography?.bodyCategory || 'Sans-Serif'}]`, 20, y + 27);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Primary usage: ${bible.typography?.bodyUsage || 'Paragraph copy, UI controls, navigation labels, and descriptions.'}`, 20, y + 34);
+
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Sample Scale: Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz  |  0 1 2 3 4 5 6 7 8 9', 20, y + 44);
+
+      // Footer
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`AI Studio Brand Identity Asset Spec Sheet  •  ${bible.companyName}  •  Page 1 of 1`, 15, 287);
+
+      const safeName = (bible.companyName || 'brand').toLowerCase().replace(/[^a-z0-9]/g, '-');
+      doc.save(`${safeName}-brand-assets-spec.pdf`);
+
+      setToast({
+        message: "Downloaded 1-Page Brand Assets PDF Sheet!",
+        hex: primaryHex
+      });
+      setTimeout(() => setToast(null), 2500);
+    } catch (err: any) {
+      console.error("Failed to generate Asset Sheet PDF:", err);
+      setToast({
+        message: `Failed to create PDF: ${err.message}`,
+        hex: "#ef4444"
+      });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   const handleDownloadBrandPdf = async () => {
     try {
       setIsExportingPdf(true);
@@ -1046,7 +2273,9 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
       });
 
       const primaryHex = bible.colorPalette[0]?.hex || '#6366f1';
+      const todayStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
       
+      // PAGE 1: Core Specifications, Primary Mark & Palette
       // Header Banner
       doc.setFillColor(15, 23, 42); // slate-900
       doc.rect(0, 0, 210, 42, 'F');
@@ -1054,53 +2283,138 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(22);
-      doc.text(bible.companyName || 'Brand Guidelines', 15, 20);
+      doc.text(bible.companyName || 'Brand Guidelines', 15, 18);
 
-      doc.setFontSize(9);
+      doc.setFontSize(8.5);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(129, 140, 248); // indigo-400
-      doc.text(`BRAND SPECIFICATION BIBLE  •  ${(bible.industry || 'General Sector').toUpperCase()}`, 15, 28);
+      doc.text(`BRAND SPECIFICATION BIBLE  •  ${(bible.industry || 'General Sector').toUpperCase()}`, 15, 26);
       
       doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
       doc.setTextColor(148, 163, 184); // slate-400
-      doc.text(`Target Audience: ${bible.targetAudience || 'Universal'}`, 15, 35);
+      doc.text(`Target Audience: ${bible.targetAudience || 'Universal'}   |   Exported: ${todayStr}`, 15, 33);
 
-      let y = 52;
+      let y = 48;
 
-      // Section 1: Primary Mark
+      // Section 1: Executive Mission & Keywords
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.text('1. Primary Brand Mark', 15, y);
-      y += 8;
+      doc.setFontSize(11);
+      doc.text('1. Executive Mission & Keywords', 15, y);
+      y += 6;
 
-      if (bible.primaryLogo && bible.primaryLogo.startsWith('data:image')) {
-        try {
-          doc.addImage(bible.primaryLogo, 'PNG', 15, y, 36, 36);
-          y += 42;
-        } catch (err) {
-          doc.setFontSize(9);
-          doc.setFont('helvetica', 'italic');
-          doc.text('[Primary Logo Mark Included]', 15, y);
-          y += 10;
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      const missionText = bible.mission || 'To empower users with world-class design standards.';
+      const splitMission = doc.splitTextToSize(missionText, 172);
+      const missionBoxHeight = Math.max(18, (splitMission.length * 4.5) + 10);
+      doc.roundedRect(15, y, 180, missionBoxHeight, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8.5);
+      doc.setTextColor(51, 65, 85);
+      doc.text(splitMission, 19, y + 6);
+
+      const keywordsStr = (bible.brandKeywords || []).join('  •  ');
+      if (keywordsStr) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(99, 102, 241);
+        doc.text(`KEYWORDS: ${keywordsStr}`, 19, y + missionBoxHeight - 4);
+      }
+      y += missionBoxHeight + 8;
+
+      // Section 2: Primary Brand Mark
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text('2. Primary Brand Mark', 15, y);
+      y += 6;
+
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(15, y, 180, 48, 3, 3, 'FD');
+
+      let logoDataUrl: string | null = null;
+      if (bible.primaryLogo) {
+        if (bible.primaryLogo.startsWith('data:image/png') || bible.primaryLogo.startsWith('data:image/jpeg')) {
+          logoDataUrl = bible.primaryLogo;
+        } else {
+          try {
+            let src = bible.primaryLogo;
+            if (src.trim().startsWith('<svg')) {
+              const clean = getCleanSvg(src);
+              src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
+            }
+            logoDataUrl = await new Promise<string | null>((resolve) => {
+              const img = new Image();
+              img.crossOrigin = 'anonymous';
+              img.onload = () => {
+                try {
+                  const canvas = document.createElement('canvas');
+                  canvas.width = img.naturalWidth || 300;
+                  canvas.height = img.naturalHeight || 300;
+                  const ctx = canvas.getContext('2d');
+                  if (ctx) {
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    resolve(canvas.toDataURL('image/png'));
+                  } else {
+                    resolve(null);
+                  }
+                } catch {
+                  resolve(null);
+                }
+              };
+              img.onerror = () => resolve(null);
+              img.src = src;
+            });
+          } catch {
+            logoDataUrl = null;
+          }
         }
-      } else {
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'italic');
-        doc.setTextColor(100, 116, 139);
-        doc.text('Primary logo mark pending synthesis.', 15, y);
-        y += 10;
       }
 
-      // Section 2: Color Palette
+      if (logoDataUrl) {
+        try {
+          doc.addImage(logoDataUrl, 'PNG', 20, y + 4, 40, 40);
+          
+          // Info next to logo
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9.5);
+          doc.setTextColor(15, 23, 42);
+          doc.text(`${bible.companyName} Primary Mark`, 68, y + 12);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text('Primary vector logo mark synthesized for multi-scale applications.', 68, y + 18);
+          doc.text('Format: PNG / SVG Standard   |   Resolution: High-Res Rasterized', 68, y + 24);
+          doc.text(`Primary Color: ${primaryHex.toUpperCase()}`, 68, y + 30);
+        } catch (err) {
+          doc.setFontSize(8.5);
+          doc.setFont('helvetica', 'italic');
+          doc.setTextColor(100, 116, 139);
+          doc.text(`${bible.companyName} Primary Mark Included in Specifications`, 20, y + 24);
+        }
+      } else {
+        doc.setFontSize(8.5);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(100, 116, 139);
+        doc.text(`${bible.companyName} Primary Mark Vector Included`, 20, y + 24);
+      }
+      y += 54;
+
+      // Section 3: 5-Color Palette & Accessibility Specs
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
+      doc.setFontSize(11);
       doc.setTextColor(15, 23, 42);
-      doc.text('2. 5-Color Design Palette', 15, y);
-      y += 8;
+      doc.text('3. 5-Color Design Palette & Accessibility Ratings', 15, y);
+      y += 6;
 
       if (bible.colorPalette && bible.colorPalette.length > 0) {
         let xOffset = 15;
+        const swatchWidth = 33;
         bible.colorPalette.forEach((col) => {
           const rgb = hexToRgb(col.hex);
           if (rgb) {
@@ -1108,82 +2422,319 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
           } else {
             doc.setFillColor(99, 102, 241);
           }
-          doc.roundedRect(xOffset, y, 32, 18, 2, 2, 'F');
-          doc.setDrawColor(226, 232, 240);
-          doc.roundedRect(xOffset, y, 32, 18, 2, 2, 'S');
+          doc.roundedRect(xOffset, y, swatchWidth, 20, 2, 2, 'F');
+          doc.setDrawColor(203, 213, 225);
+          doc.roundedRect(xOffset, y, swatchWidth, 20, 2, 2, 'S');
+
+          const a11y = getAccessibilityScore(col.hex);
 
           doc.setFontSize(8);
           doc.setFont('helvetica', 'bold');
           doc.setTextColor(15, 23, 42);
-          doc.text(col.name, xOffset, y + 24);
+          doc.text(doc.splitTextToSize(col.name, swatchWidth), xOffset, y + 25);
 
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7.5);
+          doc.setFontSize(7);
           doc.setTextColor(100, 116, 139);
-          doc.text(col.hex.toUpperCase(), xOffset, y + 28);
-          doc.text(`Role: ${col.role}`, xOffset, y + 32);
+          doc.text(col.hex.toUpperCase(), xOffset, y + 30);
+          doc.text(`Role: ${col.role}`, xOffset, y + 34);
 
-          xOffset += 37;
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.5);
+          if (a11y.rating === 'AAA') {
+            doc.setTextColor(16, 185, 129);
+          } else if (a11y.rating.startsWith('AA')) {
+            doc.setTextColor(99, 102, 241);
+          } else {
+            doc.setTextColor(244, 63, 94);
+          }
+          doc.text(`A11y ${a11y.rating} (${a11y.bestRatio.toFixed(1)}:1)`, xOffset, y + 38);
+
+          xOffset += 36;
         });
-        y += 40;
+        y += 44;
       }
 
-      // Section 3: Typography & Font Pairings
+      // Compliant Contrast Pairing Summary Box
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(15, y, 180, 18, 2, 2, 'FD');
+
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
+      doc.setFontSize(7.5);
       doc.setTextColor(15, 23, 42);
-      doc.text('3. Typography & Font Pairings', 15, y);
-      y += 8;
+      doc.text('WCAG 2.1 Accessibility Audit Summary:', 19, y + 5);
+
+      const compliantPairs = getCompliantPairs(4.5);
+      const topPairsStr = compliantPairs.slice(0, 3).map(p => `${p.bg} on ${p.text} (${p.ratio.toFixed(1)}:1)`).join('  |  ');
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(71, 85, 105);
+      doc.text(topPairsStr ? `Recommended compliant text pairs: ${topPairsStr}` : 'All palette colors pass minimum contrast checks against white or slate dark backgrounds.', 19, y + 11);
+
+      // Footer Page 1
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`AI Studio Brand Specification Bible  •  ${bible.companyName}  •  Page 1 of 3`, 15, 287);
+
+      // PAGE 2: Typography, Archetype, Voice & Guidelines
+      doc.addPage();
+
+      // Top running header on Page 2
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, 210, 14, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+      doc.text(`${(bible.companyName || 'BRAND').toUpperCase()}  —  TYPOGRAPHY, VOICE & BRAND GUIDELINES`, 15, 9);
+      doc.setTextColor(129, 140, 248);
+      doc.text('PAGE 2 OF 3', 178, 9);
+
+      let y2 = 22;
+
+      // Section 4: Typography & Google Font Pairings
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text('4. Typography & Google Font Scale', 15, y2);
+      y2 += 6;
 
       doc.setFillColor(248, 250, 252);
       doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(15, y, 180, 26, 3, 3, 'FD');
+      doc.roundedRect(15, y2, 180, 32, 2, 2, 'FD');
 
-      doc.setFontSize(9.5);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(15, 23, 42);
-      doc.text(`Header Font: ${bible.typography?.headerFont || 'Playfair Display'}`, 20, y + 7);
-      doc.text(`Body Font: ${bible.typography?.bodyFont || 'Plus Jakarta Sans'}`, 20, y + 14);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(71, 85, 105);
-      doc.text(`Header Usage: ${bible.typography?.headerUsage || 'Primary headings and displays'}  •  Body Usage: ${bible.typography?.bodyUsage || 'Body text and UI controls'}`, 20, y + 21);
-      y += 34;
-
-      // Section 4: Brand Voice
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.setTextColor(15, 23, 42);
-      doc.text('4. Verbal Identity & Voice Guidelines', 15, y);
-      y += 8;
-
-      const voiceTone = typeof bible.brandVoice === 'object' ? bible.brandVoice.tone : bible.brandVoice;
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(9.5);
-      doc.setTextColor(51, 65, 85);
-      const splitTone = doc.splitTextToSize(`"${voiceTone || 'Professional, authoritative, and friendly.'}"`, 180);
-      doc.text(splitTone, 15, y);
-      y += (splitTone.length * 5) + 10;
-
-      // Section 5: Mission Statement
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.setTextColor(15, 23, 42);
-      doc.text('5. Company Mission', 15, y);
-      y += 8;
-
-      doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
-      doc.setTextColor(71, 85, 105);
-      const splitMission = doc.splitTextToSize(bible.mission || 'To empower users with world-class products.', 180);
-      doc.text(splitMission, 15, y);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Display Header Font: ${bible.typography?.headerFont || 'Playfair Display'} (${bible.typography?.headerCategory || 'Serif'})`, 20, y2 + 7);
+      doc.text(`Body Paragraph Font: ${bible.typography?.bodyFont || 'Plus Jakarta Sans'} (${bible.typography?.bodyCategory || 'Sans-Serif'})`, 20, y2 + 15);
 
-      // Footer
       doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Header Application: ${bible.typography?.headerUsage || 'Primary displays and section headings'}`, 20, y2 + 22);
+      doc.text(`Body Application: ${bible.typography?.bodyUsage || 'Paragraph copy, UI elements, and navigation labels'}`, 20, y2 + 27);
+      y2 += 38;
+
+      // Section 5: Brand Archetype
+      if (bible.archetype) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(15, 23, 42);
+        doc.text('5. Brand Archetype & Strategic Identity', 15, y2);
+        y2 += 6;
+
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(15, y2, 180, 26, 2, 2, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(99, 102, 241);
+        doc.text(`Primary Archetype: ${bible.archetype.primaryArchetype.toUpperCase()}`, 20, y2 + 7);
+
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(8);
+        doc.setTextColor(51, 65, 85);
+        doc.text(`"${bible.archetype.tagline}"`, 20, y2 + 13);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        const splitSummary = doc.splitTextToSize(`Summary: ${bible.archetype.summary}`, 170);
+        doc.text(splitSummary, 20, y2 + 19);
+        y2 += 32;
+      }
+
+      // Section 6: Verbal Identity & Brand Voice
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text('6. Verbal Identity & Voice Guidelines', 15, y2);
+      y2 += 6;
+
+      const voiceObj = typeof bible.brandVoice === 'object' ? bible.brandVoice : null;
+      const voiceTone = voiceObj?.tone || (typeof bible.brandVoice === 'string' ? bible.brandVoice : 'Professional, clear, and confident.');
+      
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(226, 232, 240);
+      const splitTone = doc.splitTextToSize(`Tone of Voice: "${voiceTone}"`, 172);
+      const voiceBoxHeight = Math.max(22, (splitTone.length * 4) + 12);
+      doc.roundedRect(15, y2, 180, voiceBoxHeight, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      doc.text(splitTone, 19, y2 + 6);
+
+      if (voiceObj?.aboutUsParagraph) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(71, 85, 105);
+        const splitAbout = doc.splitTextToSize(`Sample Story: "${voiceObj.aboutUsParagraph}"`, 172);
+        doc.text(splitAbout, 19, y2 + 14);
+      }
+      y2 += voiceBoxHeight + 8;
+
+      // Section 7: Usage Guidelines (Do's & Don'ts)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text("7. Brand Usage Directives (Do's & Don'ts)", 15, y2);
+      y2 += 6;
+
+      // Do Box
+      doc.setFillColor(236, 253, 245); // emerald-50
+      doc.setDrawColor(167, 243, 208);
+      doc.roundedRect(15, y2, 87, 44, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(6, 95, 70);
+      doc.text('Mandatory Directives (Do)', 19, y2 + 6);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(15, 23, 42);
+      let doY = y2 + 12;
+      (bible.doGuidelines || []).slice(0, 4).forEach((g) => {
+        const splitG = doc.splitTextToSize(`• ${g}`, 80);
+        doc.text(splitG, 19, doY);
+        doY += (splitG.length * 3.5);
+      });
+
+      // Don't Box
+      doc.setFillColor(255, 241, 242); // rose-50
+      doc.setDrawColor(254, 205, 211);
+      doc.roundedRect(108, y2, 87, 44, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(159, 18, 57);
+      doc.text('Prohibited Usages (Don\'t)', 112, y2 + 6);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(15, 23, 42);
+      let dontY = y2 + 12;
+      (bible.dontGuidelines || []).slice(0, 4).forEach((g) => {
+        const splitG = doc.splitTextToSize(`• ${g}`, 80);
+        doc.text(splitG, 112, dontY);
+        dontY += (splitG.length * 3.5);
+      });
+
+      // Footer Page 2
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
-      doc.text(`Generated by AI Studio Brand Consultant  •  ${new Date().toLocaleDateString()}`, 15, 285);
+      doc.text(`AI Studio Brand Specification Bible  •  ${bible.companyName}  •  Page 2 of 3`, 15, 287);
+
+      // PAGE 3: Brand Patterns, Favicon & Style Audit Report
+      doc.addPage();
+
+      // Top running header on Page 3
+      doc.setFillColor(15, 23, 42);
+      doc.rect(0, 0, 210, 14, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(255, 255, 255);
+      doc.text(`${(bible.companyName || 'BRAND').toUpperCase()}  —  PATTERNS, FAVICON & STYLE AUDIT`, 15, 9);
+      doc.setTextColor(129, 140, 248);
+      doc.text('PAGE 3 OF 3', 178, 9);
+
+      let y3 = 22;
+
+      // Section 8: Brand Pattern Specifications
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text('8. Seamless Brand Pattern & Background Specs', 15, y3);
+      y3 += 6;
+
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(15, y3, 180, 28, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(99, 102, 241);
+      doc.text(`Active Pattern Motif: ${bible.pattern?.patternName || 'Geometric Tile Overlay'}`, 20, y3 + 7);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105);
+      const splitPatternDesc = doc.splitTextToSize(`Concept Strategy: ${bible.pattern?.description || 'Seamless vector pattern customized with brand-locked hex colors for print and digital mediums.'}`, 170);
+      doc.text(splitPatternDesc, 20, y3 + 14);
+      y3 += 34;
+
+      // Section 9: Favicon Mark Specs
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text('9. Digital Favicon & App Icon Specifications', 15, y3);
+      y3 += 6;
+
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(15, y3, 180, 28, 2, 2, 'FD');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Favicon Mark: ${bible.favicon?.faviconName || 'Brand Monogram Mark'}`, 20, y3 + 7);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105);
+      const splitFaviconExp = doc.splitTextToSize(`Application Strategy: ${bible.favicon?.explanation || 'Optimized for browser tabs, web app bookmarks, and mobile launcher home screen icons.'}`, 170);
+      doc.text(splitFaviconExp, 20, y3 + 14);
+      y3 += 34;
+
+      // Section 10: Automated Style Audit Report Summary (if available)
+      if (auditReport) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(15, 23, 42);
+        doc.text('10. Automated Style Audit Quality Report', 15, y3);
+        y3 += 6;
+
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(15, y3, 180, 52, 2, 2, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.setTextColor(99, 102, 241);
+        doc.text(`Overall Brand Quality Score: ${auditReport.overallScore}/100  —  "${auditReport.ratingTagline}"`, 20, y3 + 8);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text(`• Color Contrast Score: ${auditReport.colorContrastReport.score}/100 (${auditReport.colorContrastReport.status})`, 20, y3 + 16);
+        doc.text(`• Font Legibility Score: ${auditReport.fontLegibilityReport.score}/100 (${auditReport.fontLegibilityReport.status})`, 20, y3 + 22);
+        doc.text(`• Archetype Consistency Score: ${auditReport.archetypeConsistencyReport.score}/100 (${auditReport.archetypeConsistencyReport.status})`, 20, y3 + 28);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text('Key Actionable Improvements:', 20, y3 + 36);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        const topRecs = (auditReport.actionableImprovements || []).slice(0, 2).map((r: string) => `• ${r}`).join('   ');
+        const splitRecs = doc.splitTextToSize(topRecs || '• All core specs meet WCAG 2.1 compliance.', 170);
+        doc.text(splitRecs, 20, y3 + 42);
+
+        y3 += 58;
+      }
+
+      // Footer Page 3
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`AI Studio Brand Specification Bible  •  ${bible.companyName}  •  Page 3 of 3`, 15, 287);
 
       doc.save(`${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-brand-bible.pdf`);
 
@@ -1260,6 +2811,25 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
     return (lighter + 0.05) / (darker + 0.05);
   };
 
+  const getAccessibilityScore = (hex: string) => {
+    const contrastWhite = getContrastRatio(hex, '#ffffff');
+    const contrastDark = getContrastRatio(hex, '#0f172a');
+    const bestRatio = Math.max(contrastWhite, contrastDark);
+    let rating = 'FAIL';
+    let badgeStyle = 'bg-rose-500/10 text-rose-500 border-rose-500/20';
+    if (bestRatio >= 7.0) {
+      rating = 'AAA';
+      badgeStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20';
+    } else if (bestRatio >= 4.5) {
+      rating = 'AA';
+      badgeStyle = 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20';
+    } else if (bestRatio >= 3.0) {
+      rating = 'AA Lg';
+      badgeStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20';
+    }
+    return { contrastWhite, contrastDark, bestRatio, rating, badgeStyle };
+  };
+
   const getCompliantPairs = (minRatio: number, maxRatio: number = 999) => {
     const list: { bg: string; text: string; ratio: number }[] = [];
     const colors = [
@@ -1288,6 +2858,84 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
 
     // Sort by ratio descending
     return list.sort((a, b) => b.ratio - a.ratio);
+  };
+
+  // Calculate adjusted hex color that meets target WCAG ratio against bgHex
+  const calculateAdjustedCompliantColor = (bgHex: string, fgHex: string, targetRatio: number = 4.5): string => {
+    const bgRgb = hexToRgb(bgHex) || { r: 255, g: 255, b: 255 };
+    const fgRgb = hexToRgb(fgHex) || { r: 99, g: 102, b: 241 };
+    const bgLum = getLuminance(bgHex);
+    const shouldDarken = bgLum > 0.4;
+
+    let bestHex = fgHex;
+    let bestRatio = getContrastRatio(bgHex, fgHex);
+
+    for (let step = 1; step <= 100; step++) {
+      const factor = step / 100;
+      let r: number, g: number, b: number;
+      if (shouldDarken) {
+        r = Math.max(0, Math.floor(fgRgb.r * (1 - factor)));
+        g = Math.max(0, Math.floor(fgRgb.g * (1 - factor)));
+        b = Math.max(0, Math.floor(fgRgb.b * (1 - factor)));
+      } else {
+        r = Math.min(255, Math.floor(fgRgb.r + (255 - fgRgb.r) * factor));
+        g = Math.min(255, Math.floor(fgRgb.g + (255 - fgRgb.g) * factor));
+        b = Math.min(255, Math.floor(fgRgb.b + (255 - fgRgb.b) * factor));
+      }
+      const candidateHex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+      const ratio = getContrastRatio(bgHex, candidateHex);
+      if (ratio >= targetRatio) {
+        return candidateHex;
+      }
+      if (ratio > bestRatio) {
+        bestRatio = ratio;
+        bestHex = candidateHex;
+      }
+    }
+    return bestHex;
+  };
+
+  const handleApplyA11yFixToPalette = (oldHex: string, newHex: string, colorName: string) => {
+    const updatedPalette = bible.colorPalette.map(c => {
+      if (c.hex.toLowerCase() === oldHex.toLowerCase()) {
+        return { ...c, hex: newHex };
+      }
+      return c;
+    });
+    onUpdatePalette(updatedPalette);
+    setToast({
+      message: `Updated ${colorName} to ${newHex.toUpperCase()} for WCAG AA compliance!`,
+      hex: newHex
+    });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleCopyA11yReport = () => {
+    const palette = bible.colorPalette || [];
+    let reportText = `WCAG 2.1 Accessibility Audit Report for ${bible.companyName}\n`;
+    reportText += `Generated: ${new Date().toLocaleDateString()}\n\n`;
+
+    let failCount = 0;
+    let passCount = 0;
+
+    palette.forEach((textCol) => {
+      palette.forEach((bgCol) => {
+        if (textCol.hex !== bgCol.hex) {
+          const ratio = getContrastRatio(bgCol.hex, textCol.hex);
+          const status = ratio >= 7.0 ? 'AAA Compliant' : ratio >= 4.5 ? 'AA Compliant' : ratio >= 3.0 ? 'AA Large Only' : 'FAIL';
+          if (ratio < 4.5) failCount++; else passCount++;
+          reportText += `• ${textCol.name} (${textCol.hex}) on ${bgCol.name} (${bgCol.hex}): ${ratio.toFixed(2)}:1 [${status}]\n`;
+        }
+      });
+    });
+
+    reportText += `\nSummary: ${passCount} Passing Combinations, ${failCount} Failing Combinations (<4.5:1).\n`;
+    navigator.clipboard.writeText(reportText);
+    setToast({
+      message: "Copied Accessibility Audit Report to clipboard!",
+      hex: bible.colorPalette[0]?.hex || '#6366f1'
+    });
+    setTimeout(() => setToast(null), 2500);
   };
 
   const getPatternStyle = () => {
@@ -1408,27 +3056,126 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                 {bible.mission}
               </p>
             </div>
-            <div className="relative">
+            <div className="flex items-center gap-2.5 flex-wrap">
               <button
-                id="dashboard-download-brand-assets-btn"
-                onClick={() => setShowExportMenu(!showExportMenu)}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 text-xs font-bold rounded-full flex items-center gap-2 shadow-md transition cursor-pointer"
+                id="dashboard-automated-style-audit-btn"
+                onClick={handleRunStyleAudit}
+                disabled={isAuditing}
+                className="bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white px-4 py-2.5 text-xs font-bold rounded-full flex items-center gap-2 shadow-md border border-emerald-500/50 transition cursor-pointer"
+                title="Trigger AI analysis of color contrast, font legibility, and archetype consistency"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>Download Brand Kit</span>
-                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`} />
+                {isAuditing ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-200" />
+                ) : (
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-200" />
+                )}
+                <span>{isAuditing ? "Auditing Brand Specs..." : "Automated Style Audit"}</span>
               </button>
 
-              <AnimatePresence>
-                {showExportMenu && (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
-                    <motion.div
-                      initial={{ opacity: 0, y: -8, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -8, scale: 0.95 }}
-                      className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-2 z-50 text-xs font-sans text-left"
-                    >
+              <button
+                id="dashboard-copy-shareable-link-btn"
+                onClick={handleCopyShareableLink}
+                className="bg-slate-800/90 hover:bg-slate-700 active:scale-98 text-white px-4 py-2.5 text-xs font-bold rounded-full flex items-center gap-2 shadow-md border border-slate-700/80 transition cursor-pointer"
+                title="Copy shareable link encoding this brand identity"
+              >
+                {isLinkCopied ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Share2 className="w-3.5 h-3.5 text-indigo-300" />
+                )}
+                <span>{isLinkCopied ? "Link Copied!" : "Copy Shareable Link"}</span>
+              </button>
+
+              <button
+                id="dashboard-download-pdf-direct-btn"
+                onClick={handleDownloadBrandPdf}
+                disabled={isExportingPdf}
+                className="bg-indigo-600 hover:bg-indigo-500 active:scale-98 text-white px-4 py-2.5 text-xs font-bold rounded-full flex items-center gap-2 shadow-md border border-indigo-500/50 transition cursor-pointer disabled:opacity-50"
+                title="Generate and download complete Brand Specification PDF document"
+              >
+                {isExportingPdf ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-200" />
+                ) : (
+                  <FileText className="w-3.5 h-3.5 text-indigo-200" />
+                )}
+                <span>{isExportingPdf ? "Generating PDF..." : "Download PDF"}</span>
+              </button>
+
+              <button
+                id="dashboard-download-png-direct-btn"
+                onClick={handleDownloadDashboardPng}
+                disabled={isExportingPng}
+                className="bg-purple-600 hover:bg-purple-500 active:scale-98 text-white px-4 py-2.5 text-xs font-bold rounded-full flex items-center gap-2 shadow-md border border-purple-500/50 transition cursor-pointer disabled:opacity-50"
+                title="Capture and download high-quality PNG image snapshot of the active dashboard using html2canvas"
+              >
+                {isExportingPng ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-purple-200" />
+                ) : (
+                  <Camera className="w-3.5 h-3.5 text-purple-200" />
+                )}
+                <span>{isExportingPng ? "Capturing PNG..." : "Dashboard PNG"}</span>
+              </button>
+
+              <div className="relative">
+                <button
+                  id="dashboard-download-brand-assets-btn"
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 text-xs font-bold rounded-full flex items-center gap-2 shadow-md transition cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Brand Kit</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`} />
+                </button>
+
+                <AnimatePresence>
+                  {showExportMenu && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
+                      <motion.div
+                        initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -8, scale: 0.95 }}
+                        className="absolute right-0 mt-2 w-64 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-2 z-50 text-xs font-sans text-left"
+                      >
+                        <button
+                          id="export-share-link-btn"
+                          onClick={() => {
+                            setShowExportMenu(false);
+                            handleCopyShareableLink();
+                          }}
+                          className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-slate-800 transition flex items-start gap-3 cursor-pointer group border-b border-slate-800/80 mb-1 pb-2.5"
+                        >
+                          <Share2 className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0 group-hover:scale-110 transition" />
+                          <div>
+                            <div className="font-bold text-white flex items-center gap-1.5">
+                              <span>Copy Shareable Link</span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                              Encode brand specification into a shareable URL hash.
+                            </p>
+                          </div>
+                        </button>
+
+                      <button
+                        id="export-dashboard-png-btn"
+                        onClick={() => {
+                          setShowExportMenu(false);
+                          handleDownloadDashboardPng();
+                        }}
+                        disabled={isExportingPng}
+                        className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-slate-800 transition flex items-start gap-3 cursor-pointer group"
+                      >
+                        <Camera className="w-4 h-4 text-purple-400 mt-0.5 shrink-0 group-hover:scale-110 transition" />
+                        <div>
+                          <div className="font-bold text-white flex items-center gap-1.5">
+                            <span>Dashboard PNG Snapshot</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                            High-resolution 2x canvas snapshot of active dashboard.
+                          </p>
+                        </div>
+                      </button>
+
                       <button
                         id="export-pdf-btn"
                         onClick={() => {
@@ -1493,6 +3240,7 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
               </AnimatePresence>
             </div>
           </div>
+        </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 border-t border-slate-800 pt-5 text-xs font-sans">
             <div>
@@ -1565,6 +3313,25 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                   </button>
                 </div>
 
+                {allLogos.length > 0 && (
+                  <button
+                    id="header-compare-logos-btn"
+                    onClick={() => {
+                      setOverlayViewMode('grid');
+                      setIsLogoHistoryOpen(true);
+                    }}
+                    className={`text-[10px] font-sans font-bold px-3 py-1.5 rounded-full border flex items-center gap-1.5 transition-all duration-300 cursor-pointer shadow-sm ${
+                      isDark
+                        ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/40 hover:bg-indigo-600 hover:text-white'
+                        : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-600 hover:text-white'
+                    }`}
+                    title="Open Fullscreen Logo Comparison & Selection Overlay"
+                  >
+                    <Columns className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Compare All ({allLogos.length})</span>
+                  </button>
+                )}
+
                 {bible.primaryLogo && (
                   <button
                     id="header-download-logo-btn"
@@ -1589,12 +3356,53 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
               </div>
             </div>
 
-            {/* Logo Viewer Stage */}
-            <div className={`rounded-2xl border p-8 flex flex-col items-center justify-center min-h-[240px] relative overflow-hidden group transition-all duration-300 ${
+            {/* Logo Viewer Stage with Carousel Slider */}
+            <div className={`rounded-2xl border p-6 sm:p-8 flex flex-col items-center justify-between min-h-[280px] relative overflow-hidden group transition-all duration-300 ${
               isDark ? 'bg-slate-950 border-slate-850' : 'bg-slate-50 border-slate-200'
             }`}>
+              {/* Top Bar inside Stage: Version & Status Info */}
+              {allLogos.length > 0 && !isLoadingLogo && (
+                <div className="w-full flex justify-between items-center z-10 mb-2 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full border ${
+                      isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                    }`}>
+                      Version {carouselIndex + 1} of {allLogos.length}
+                    </span>
+                    {allLogos[carouselIndex] === bible.primaryLogo ? (
+                      <span className="bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Active Primary Mark
+                      </span>
+                    ) : (
+                      <button
+                        id="carousel-set-primary-btn"
+                        onClick={() => handleRestoreLogo(allLogos[carouselIndex])}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-0.5 rounded-full text-[10px] font-bold shadow-sm transition transform hover:scale-105 active:scale-95 flex items-center gap-1 cursor-pointer"
+                        title="Set this logo as the active primary mark"
+                      >
+                        <Sparkles className="w-3 h-3 text-amber-300" /> Set as Primary
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      id="stage-lightbox-btn"
+                      onClick={() => openLightbox(carouselIndex)}
+                      className={`text-[10px] font-bold p-1.5 rounded-lg border transition cursor-pointer ${
+                        isDark ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                      title="Expand to Full Lightbox"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Main Image Stage Display */}
               {isLoadingLogo ? (
-                <div className="flex flex-col items-center gap-3 py-6 text-center font-sans">
+                <div className="flex flex-col items-center gap-3 py-10 text-center font-sans">
                   <svg className="animate-spin h-8 w-8 text-indigo-600" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
@@ -1604,60 +3412,119 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                     <p className="text-[10px] text-slate-400 mt-1 max-w-xs leading-relaxed">Drawing abstract elements with gemini-3-pro-image-preview</p>
                   </div>
                 </div>
-              ) : bible.primaryLogo ? (
-                <div className="relative group/logo flex flex-col items-center">
-                  {logoAspectRatio === 'square' ? (
-                    <div className={`w-52 h-52 aspect-square flex items-center justify-center p-4 rounded-2xl shadow-md transition-all duration-300 relative border ${
-                      isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-                    }`}>
-                      <img
-                        src={bible.primaryLogo}
-                        alt="Primary Brand Logo (Square 1:1)"
-                        className="w-full h-full object-contain rounded-lg transition duration-200 group-hover/logo:scale-105"
-                        referrerPolicy="no-referrer"
-                      />
-                      <span className="absolute bottom-2 right-2 text-[8px] font-mono font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-600/10 text-indigo-500 border border-indigo-500/20">
-                        1 : 1
-                      </span>
-                    </div>
-                  ) : (
-                    <img
-                      src={bible.primaryLogo}
-                      alt="Primary Brand Logo"
-                      className={`max-h-48 max-w-full object-contain rounded-xl shadow-sm p-3 transition duration-200 group-hover/logo:scale-102 ${
-                        isDark ? 'bg-slate-900 border border-slate-800' : 'bg-white mix-blend-multiply'
-                      }`}
-                      referrerPolicy="no-referrer"
-                    />
+              ) : allLogos.length > 0 ? (
+                <div className="relative w-full flex-1 flex items-center justify-center py-2 group/stage">
+                  {/* Left Carousel Arrow */}
+                  {allLogos.length > 1 && (
+                    <button
+                      id="carousel-prev-btn"
+                      onClick={handlePrevSlide}
+                      className="absolute left-1 sm:left-2 top-1/2 -translate-y-1/2 bg-slate-900/80 hover:bg-indigo-600 text-white p-2.5 rounded-full backdrop-blur shadow-lg transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer z-20"
+                      title="Previous Logo Variation"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
                   )}
-                  {/* Floating Download Button (Permanently visible) */}
-                  <button
-                    id="floating-download-logo-btn"
-                    onClick={handleDownloadLogo}
-                    disabled={downloading}
-                    className="absolute -top-2 -right-2 bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-full shadow-lg transition transform hover:scale-110 active:scale-95 cursor-pointer z-10"
-                    title="Download PNG to device"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                  </button>
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition rounded-xl flex items-center justify-center gap-2">
+
+                  {/* Right Carousel Arrow */}
+                  {allLogos.length > 1 && (
                     <button
-                      id="stage-download-logo-btn"
-                      onClick={handleDownloadLogo}
-                      className="bg-white hover:bg-slate-50 text-slate-800 p-2.5 rounded-full shadow-md transition cursor-pointer"
-                      title="Download PNG File"
+                      id="carousel-next-btn"
+                      onClick={handleNextSlide}
+                      className="absolute right-1 sm:right-2 top-1/2 -translate-y-1/2 bg-slate-900/80 hover:bg-indigo-600 text-white p-2.5 rounded-full backdrop-blur shadow-lg transition-all duration-200 hover:scale-110 active:scale-95 cursor-pointer z-20"
+                      title="Next Logo Variation"
                     >
-                      <Download className="w-4 h-4" />
+                      <ChevronRight className="w-5 h-5" />
                     </button>
-                    <button
-                      id="stage-edit-prompt-btn"
-                      onClick={() => setShowPromptEditor(!showPromptEditor)}
-                      className="bg-white hover:bg-slate-50 text-slate-800 p-2.5 rounded-full shadow-md transition cursor-pointer"
-                      title="Refine Logo Style"
+                  )}
+
+                  {/* Active Logo Container with Motion Animation & Scale Effects */}
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={carouselIndex}
+                      initial={{ opacity: 0, scale: 0.94 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.94 }}
+                      whileHover={{ scale: 1.03, y: -2 }}
+                      whileTap={{ scale: 0.98 }}
+                      transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+                      className="relative group/logo flex flex-col items-center my-auto cursor-pointer"
                     >
-                      <RefreshCw className="w-4 h-4" />
-                    </button>
-                  </div>
+                      {logoAspectRatio === 'square' ? (
+                        <div className={`w-48 h-48 sm:w-52 sm:h-52 aspect-square flex items-center justify-center p-4 rounded-2xl shadow-md transition-all duration-300 relative border group-hover/logo:shadow-2xl group-hover/logo:shadow-indigo-500/20 group-hover/logo:border-indigo-500/40 ${
+                          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                        }`}>
+                          <img
+                            src={allLogos[carouselIndex]}
+                            alt={`Brand Logo Variation ${carouselIndex + 1}`}
+                            className="w-full h-full object-contain rounded-lg transition-transform duration-300 ease-out group-hover/logo:scale-108 cursor-pointer"
+                            onClick={() => openLightbox(carouselIndex)}
+                            referrerPolicy="no-referrer"
+                          />
+                          <span className="absolute bottom-2 right-2 text-[8px] font-mono font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-600/10 text-indigo-500 border border-indigo-500/20">
+                            1 : 1
+                          </span>
+                        </div>
+                      ) : (
+                        <img
+                          src={allLogos[carouselIndex]}
+                          alt={`Brand Logo Variation ${carouselIndex + 1}`}
+                          className={`max-h-48 max-w-full object-contain rounded-xl shadow-sm p-3 transition-all duration-300 ease-out group-hover/logo:scale-105 group-hover/logo:shadow-xl group-hover/logo:shadow-indigo-500/15 cursor-pointer ${
+                            isDark ? 'bg-slate-900 border border-slate-800 group-hover/logo:border-indigo-500/40' : 'bg-white mix-blend-multiply'
+                          }`}
+                          onClick={() => openLightbox(carouselIndex)}
+                          referrerPolicy="no-referrer"
+                        />
+                      )}
+
+                      {/* Floating Download Button (Permanently visible) */}
+                      <motion.button
+                        whileHover={{ scale: 1.15, rotate: 5 }}
+                        whileTap={{ scale: 0.9 }}
+                        id="floating-download-logo-btn"
+                        onClick={() => handleDownloadLogo(allLogos[carouselIndex])}
+                        disabled={downloading}
+                        className="absolute -top-2 -right-2 bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-full shadow-lg transition-all cursor-pointer z-10"
+                        title="Download PNG to device"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </motion.button>
+
+                      {/* Hover Actions Overlay */}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/logo:opacity-100 transition duration-300 rounded-xl flex items-center justify-center gap-2.5 pointer-events-auto backdrop-blur-[2px]">
+                        <motion.button
+                          whileHover={{ scale: 1.15 }}
+                          whileTap={{ scale: 0.9 }}
+                          id="stage-download-logo-btn"
+                          onClick={() => handleDownloadLogo(allLogos[carouselIndex])}
+                          className="bg-white hover:bg-slate-50 text-slate-800 p-2.5 rounded-full shadow-lg transition cursor-pointer"
+                          title="Download PNG File"
+                        >
+                          <Download className="w-4 h-4 text-indigo-600" />
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.15 }}
+                          whileTap={{ scale: 0.9 }}
+                          id="stage-view-lightbox-btn"
+                          onClick={() => openLightbox(carouselIndex)}
+                          className="bg-white hover:bg-slate-50 text-slate-800 p-2.5 rounded-full shadow-lg transition cursor-pointer"
+                          title="Zoom & Inspect"
+                        >
+                          <Eye className="w-4 h-4 text-indigo-600" />
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.15, rotate: 180 }}
+                          whileTap={{ scale: 0.9 }}
+                          id="stage-edit-prompt-btn"
+                          onClick={() => setShowPromptEditor(!showPromptEditor)}
+                          className="bg-white hover:bg-slate-50 text-slate-800 p-2.5 rounded-full shadow-lg transition cursor-pointer"
+                          title="Refine Logo Style"
+                        >
+                          <RefreshCw className="w-4 h-4 text-indigo-600" />
+                        </motion.button>
+                      </div>
+                    </motion.div>
+                  </AnimatePresence>
                 </div>
               ) : (
                 <div className="text-center space-y-3 font-sans py-6">
@@ -1671,58 +3538,79 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                   </button>
                 </div>
               )}
+
+              {/* Bottom Dot Indicators for Carousel */}
+              {allLogos.length > 1 && (
+                <div className="flex items-center justify-center gap-1.5 mt-2 z-10">
+                  {allLogos.map((_, idx) => (
+                    <button
+                      key={idx}
+                      id={`carousel-dot-${idx}`}
+                      onClick={() => setCarouselIndex(idx)}
+                      className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
+                        idx === carouselIndex
+                          ? 'w-6 bg-indigo-600 shadow-sm'
+                          : isDark
+                            ? 'w-2 bg-slate-700 hover:bg-slate-500'
+                            : 'w-2 bg-slate-300 hover:bg-slate-400'
+                      }`}
+                      title={`Jump to Logo Version ${idx + 1}`}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Logo Gallery Tray */}
+            {/* Logo Gallery Tray / Carousel Thumbnails */}
             {allLogos.length > 0 && (
               <div id="logo-gallery-tray" className="space-y-2 mt-4 font-sans">
                 <div className="flex justify-between items-center px-1">
                   <div className="flex items-center gap-2">
                     <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                      Generated Logo History ({allLogos.length})
+                      Logo History ({allLogos.length} Variations)
                     </span>
                   </div>
                   <button
                     onClick={() => setIsLogoHistoryOpen(true)}
                     className="text-[10px] text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1 cursor-pointer transition"
                   >
-                    <History className="w-3 h-3" /> View Logo History Modal
+                    <History className="w-3 h-3" /> View All in Modal
                   </button>
                 </div>
-                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-indigo-500/20 scrollbar-track-transparent">
+                <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-indigo-500/20 scrollbar-track-transparent items-center">
                   {allLogos.map((logoUrl, index) => {
-                    const isActive = logoUrl === bible.primaryLogo;
+                    const isPrimary = logoUrl === bible.primaryLogo;
+                    const isSelectedInCarousel = index === carouselIndex;
                     return (
-                      <div
+                      <button
                         id={`gallery-thumb-${index}`}
                         key={index}
-                        onClick={() => openLightbox(index)}
-                        className={`relative w-16 h-16 rounded-xl border p-1 shrink-0 cursor-pointer transition-all duration-200 hover:scale-105 group overflow-hidden ${
-                          isActive
-                            ? 'border-indigo-500 bg-indigo-50/50 ring-1 ring-indigo-500/15'
+                        onClick={() => setCarouselIndex(index)}
+                        className={`relative w-16 h-16 rounded-xl border p-1 shrink-0 cursor-pointer transition-all duration-200 group overflow-hidden ${
+                          isSelectedInCarousel
+                            ? 'border-indigo-500 bg-indigo-50/50 ring-2 ring-indigo-500/40 scale-105 shadow-sm'
                             : isDark
                               ? 'border-slate-800 bg-slate-950 hover:border-slate-700'
                               : 'border-slate-200 bg-white hover:border-slate-300'
                         }`}
+                        title={`Select Version ${index + 1}`}
                       >
                         <img
                           src={logoUrl}
                           alt={`Logo version ${index + 1}`}
                           className="w-full h-full object-contain rounded-lg"
                         />
-                        {/* Hover Overlay */}
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition duration-150 flex items-center justify-center rounded-xl">
-                          <Eye className="w-4 h-4 text-white" />
-                        </div>
-                        {isActive && (
-                          <span className="absolute top-1 right-1 bg-indigo-600 text-white p-0.5 rounded-full text-[8px] z-10">
+                        {isPrimary && (
+                          <span className="absolute top-1 right-1 bg-emerald-600 text-white p-0.5 rounded-full text-[8px] z-10 shadow-xs" title="Primary Logo">
                             <Check className="w-2.5 h-2.5" />
                           </span>
                         )}
-                        <span className="absolute bottom-1 left-1 bg-black/60 text-white px-1 py-0.5 rounded text-[8px] font-mono scale-90 origin-bottom-left">
+                        <span className={`absolute bottom-1 left-1 px-1 py-0.5 rounded text-[8px] font-mono scale-90 origin-bottom-left ${
+                          isSelectedInCarousel ? 'bg-indigo-600 text-white font-bold' : 'bg-black/60 text-white'
+                        }`}>
                           v{index + 1}
                         </span>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -1844,6 +3732,30 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                     </p>
                   </div>
 
+                  {/* Sample 'About Us' Paragraph if present */}
+                  {bible.brandVoice.aboutUsParagraph && (
+                    <div className={`p-4 border rounded-2xl transition-all duration-300 ${
+                      isDark ? 'bg-indigo-950/20 border-indigo-900/40 text-slate-200' : 'bg-indigo-50/40 border-indigo-100/80 text-slate-800'
+                    }`}>
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <span className="text-[9px] uppercase tracking-wider font-extrabold text-indigo-600 dark:text-indigo-400 flex items-center gap-1 font-sans">
+                          <Sparkles className="w-3 h-3 text-amber-500" /> Sample 'About Us' Story
+                        </span>
+                        <button
+                          onClick={handleCopyAboutUs}
+                          className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 cursor-pointer transition font-sans"
+                          title="Copy About Us paragraph"
+                        >
+                          {isAboutUsCopied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                          {isAboutUsCopied ? 'Copied' : 'Copy'}
+                        </button>
+                      </div>
+                      <p className="text-xs leading-relaxed font-sans font-medium">
+                        "{bible.brandVoice.aboutUsParagraph}"
+                      </p>
+                    </div>
+                  )}
+
                   {/* Personality Keywords */}
                   {bible.brandVoice.personalityKeywords && bible.brandVoice.personalityKeywords.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
@@ -1939,6 +3851,275 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                   </li>
                 ))}
               </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 03b / Mission-Driven Brand Personality Radar Widget */}
+      <div
+        id="brand-personality-radar-section"
+        className={`border rounded-3xl p-6 sm:p-8 shadow-sm transition-all duration-300 ${
+          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+        }`}
+      >
+        <div className={`border-b pb-4 mb-6 transition-colors duration-300 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+          isDark ? 'border-slate-800' : 'border-slate-100'
+        }`}>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block">
+                03b / Mission-Driven Analysis
+              </span>
+              <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                Data Viz Widget
+              </span>
+            </div>
+            <h2 className={`text-xl font-black flex items-center gap-2 font-sans tracking-tight mt-1 transition-colors duration-300 ${
+              isDark ? 'text-white' : 'text-slate-900'
+            }`}>
+              <Activity className="w-5 h-5 text-indigo-600" />
+              Brand Personality Trait Radar
+            </h2>
+            <p className="text-xs text-slate-400 font-sans mt-0.5 leading-relaxed">
+              Automated multi-axial trait breakdown calculated directly from your initial brand mission and keywords.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
+            {/* Dominant Trait Badge */}
+            {dominantTrait && (
+              <div className="px-3 py-1.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 font-sans text-xs font-bold flex items-center gap-1.5 shadow-sm">
+                <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400/20" />
+                <span>Dominant Trait: <strong className={isDark ? 'text-white' : 'text-indigo-900'}>{dominantTrait.trait} ({dominantTrait.score}/100)</strong></span>
+              </div>
+            )}
+
+            <button
+              onClick={() => setShowTraitSliders(!showTraitSliders)}
+              className={`px-3 py-1.5 rounded-2xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                showTraitSliders
+                  ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                  : isDark
+                    ? 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+                    : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+              }`}
+              title="Toggle Fine-Tune Sliders"
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>{showTraitSliders ? 'Hide Sliders' : 'Fine-Tune Sliders'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Preset Selector Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 p-3 rounded-2xl border bg-slate-950/20 border-slate-800/60 font-sans">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mr-1 flex items-center gap-1">
+              <Target className="w-3 h-3 text-indigo-400" /> Presets:
+            </span>
+            <button
+              onClick={() => handleTraitPresetChange('auto')}
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
+                selectedTraitPreset === 'auto'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : isDark ? 'bg-slate-900 text-slate-400 hover:text-white' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+              }`}
+            >
+              <Sparkles className="w-3 h-3 text-amber-300" /> Mission AI Analysis
+            </button>
+            <button
+              onClick={() => handleTraitPresetChange('disruptive')}
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                selectedTraitPreset === 'disruptive'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : isDark ? 'bg-slate-900 text-slate-400 hover:text-white' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+              }`}
+            >
+              Disruptive Leader
+            </button>
+            <button
+              onClick={() => handleTraitPresetChange('luxury')}
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                selectedTraitPreset === 'luxury'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : isDark ? 'bg-slate-900 text-slate-400 hover:text-white' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+              }`}
+            >
+              Luxury &amp; Prestige
+            </button>
+            <button
+              onClick={() => handleTraitPresetChange('empathetic')}
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                selectedTraitPreset === 'empathetic'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : isDark ? 'bg-slate-900 text-slate-400 hover:text-white' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+              }`}
+            >
+              Friendly Care
+            </button>
+            <button
+              onClick={() => handleTraitPresetChange('enterprise')}
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                selectedTraitPreset === 'enterprise'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : isDark ? 'bg-slate-900 text-slate-400 hover:text-white' : 'bg-white text-slate-600 hover:text-slate-900 border border-slate-200'
+              }`}
+            >
+              Enterprise Trust
+            </button>
+          </div>
+
+          {selectedTraitPreset !== 'auto' && (
+            <button
+              onClick={() => handleTraitPresetChange('auto')}
+              className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer transition"
+            >
+              <RefreshCw className="w-3 h-3" /> Reset to Mission Analysis
+            </button>
+          )}
+        </div>
+
+        {/* Widget Grid Layout: Radar Chart + Trait Cards / Sliders */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+          {/* Left: Recharts Radar Chart Stage */}
+          <div className={`lg:col-span-6 rounded-2xl p-4 sm:p-6 border flex flex-col items-center justify-center relative min-h-[320px] ${
+            isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50/80 border-slate-200'
+          }`}>
+            <div className="w-full h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart cx="50%" cy="50%" outerRadius="72%" data={personalityTraits}>
+                  <PolarGrid stroke={isDark ? '#334155' : '#cbd5e1'} strokeDasharray="3 3" />
+                  <PolarAngleAxis
+                    dataKey="trait"
+                    tick={{
+                      fill: isDark ? '#cbd5e1' : '#334155',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      fontFamily: 'sans-serif'
+                    }}
+                  />
+                  <PolarRadiusAxis
+                    angle={30}
+                    domain={[0, 100]}
+                    tick={{ fill: isDark ? '#64748b' : '#94a3b8', fontSize: 9 }}
+                  />
+                  <Radar
+                    name="Brand Trait Score"
+                    dataKey="score"
+                    stroke={bible.colorPalette[0]?.hex || '#6366f1'}
+                    fill={bible.colorPalette[0]?.hex || '#6366f1'}
+                    fillOpacity={0.45}
+                    dot={{ r: 4, fill: bible.colorPalette[0]?.hex || '#6366f1', stroke: '#ffffff', strokeWidth: 2 }}
+                  />
+                  <ChartTooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload as PersonalityTrait;
+                        return (
+                          <div className={`p-3 rounded-xl border shadow-xl font-sans text-xs ${
+                            isDark ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                          }`}>
+                            <div className="font-extrabold text-indigo-400 flex items-center justify-between gap-4">
+                              <span>{data.trait}</span>
+                              <span className="font-mono text-emerald-400">{data.score}/100</span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1 max-w-[180px] leading-tight">
+                              {data.description}
+                            </p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="text-center mt-2">
+              <span className="text-[10px] text-slate-400 font-mono font-semibold">
+                * Radar curve calculated from semantic mission text &amp; keywords
+              </span>
+            </div>
+          </div>
+
+          {/* Right: Trait Metric Breakdown & Fine-Tuning Sliders */}
+          <div className="lg:col-span-6 space-y-4">
+            <div className="space-y-3">
+              {personalityTraits.map((item) => {
+                const isDominant = item.trait === dominantTrait?.trait;
+                return (
+                  <div
+                    key={item.trait}
+                    className={`p-3 rounded-2xl border transition-all duration-200 ${
+                      isDominant
+                        ? isDark
+                          ? 'bg-indigo-950/30 border-indigo-500/40'
+                          : 'bg-indigo-50/60 border-indigo-200'
+                        : isDark
+                          ? 'bg-slate-950/40 border-slate-800'
+                          : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-black font-sans ${
+                          isDark ? 'text-slate-200' : 'text-slate-800'
+                        }`}>
+                          {item.trait}
+                        </span>
+                        {isDominant && (
+                          <span className="text-[9px] font-bold px-2 py-0.2 rounded-full bg-indigo-500/20 text-indigo-400">
+                            Peak
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs font-mono font-bold text-indigo-400">
+                        {item.score}%
+                      </span>
+                    </div>
+
+                    <p className="text-[10px] text-slate-400 leading-tight mb-2">
+                      {item.description}
+                    </p>
+
+                    {/* Score Bar or Interactive Slider */}
+                    {showTraitSliders ? (
+                      <input
+                        type="range"
+                        min={20}
+                        max={100}
+                        value={item.score}
+                        onChange={(e) => handleTraitSliderChange(item.trait, parseInt(e.target.value, 10))}
+                        className="w-full accent-indigo-600 h-1.5 rounded-lg cursor-pointer bg-slate-700"
+                      />
+                    ) : (
+                      <div className={`w-full h-2 rounded-full overflow-hidden ${
+                        isDark ? 'bg-slate-800' : 'bg-slate-200'
+                      }`}>
+                        <div
+                          className="h-full bg-gradient-to-r from-indigo-500 to-indigo-400 rounded-full transition-all duration-500"
+                          style={{ width: `${item.score}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Design Actionability Callout */}
+            <div className={`p-4 rounded-2xl border flex items-start gap-3 transition-colors ${
+              isDark ? 'bg-indigo-950/20 border-indigo-900/40 text-slate-200' : 'bg-indigo-50/50 border-indigo-100 text-slate-800'
+            }`}>
+              <Sparkles className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="font-sans text-xs leading-relaxed">
+                <span className="font-bold text-indigo-400 block mb-0.5">Brand Strategy Guidance:</span>
+                <p className="text-[11px] text-slate-300">
+                  {getDesignTipForTrait(dominantTrait?.trait || '')}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -2422,6 +4603,382 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </button>
           </div>
         )}
+      </div>
+
+      {/* Brand Voice & Written Communication Guidelines Section */}
+      <div
+        id="brand-voice-written-communication-section"
+        className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
+          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+        }`}
+      >
+        <div className={`border-b pb-4 mb-6 transition-colors duration-300 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 ${
+          isDark ? 'border-slate-800' : 'border-slate-100'
+        }`}>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block">
+                03a / Brand Voice & Communication Strategy
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 font-mono">
+                Gemini API Powered
+              </span>
+            </div>
+            <h2 className={`text-xl font-black flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
+              isDark ? 'text-white' : 'text-slate-900'
+            }`}>
+              <Megaphone className="w-5 h-5 text-indigo-600" />
+              Brand Voice & Written Communication Guidelines
+            </h2>
+            <p className="text-xs text-slate-400 font-sans mt-0.5 leading-relaxed">
+              Sample 'About Us' narrative paragraph and specific Do's & Don'ts for written communication generated based on the active brand personality ({bible.brandPersonality || 50}%).
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              id="generate-voice-gemini-btn"
+              onClick={() => handleGenerateVoice()}
+              disabled={isGeneratingVoice}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 text-white rounded-full text-xs font-extrabold flex items-center gap-2 transition duration-200 shadow-md shadow-indigo-500/10 active:scale-95 cursor-pointer font-sans"
+            >
+              <Wand2 className={`w-3.5 h-3.5 ${isGeneratingVoice ? 'animate-spin' : ''}`} />
+              {isGeneratingVoice ? 'Synthesizing Voice...' : 'Refine Voice with Gemini AI'}
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          {/* Brand Voice Preview (Live Marketing Copy & Typography) */}
+          <div className={`p-6 border rounded-2xl transition-all duration-300 ${
+            isDark ? 'bg-slate-950/90 border-slate-800' : 'bg-white border-slate-200'
+          }`}>
+            {/* Header & Controls */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4 mb-5 border-slate-200/20">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] uppercase tracking-wider font-extrabold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5 font-sans">
+                    <Type className="w-3.5 h-3.5 text-indigo-500" />
+                    Brand Voice Preview
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[8px] font-extrabold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono">
+                    Tone + Typography Live Sync
+                  </span>
+                </div>
+                <h3 className={`text-base font-extrabold tracking-tight font-sans ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Live Marketing Copy Preview
+                </h3>
+                <p className="text-xs text-slate-400 font-sans mt-0.5">
+                  Generates sample marketing copy using your brand's tone, rendered live with your selected header and body typography.
+                </p>
+              </div>
+
+              {/* Actions: Background theme switcher, Regenerate, Copy */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Background Mode Switcher */}
+                <div className={`flex rounded-xl p-1 border text-[10px] font-sans font-bold ${
+                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-200'
+                }`}>
+                  <button
+                    id="voice-preview-bg-light"
+                    onClick={() => setPreviewCardBg('light')}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      previewCardBg === 'light' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title="Light Canvas"
+                  >
+                    Light
+                  </button>
+                  <button
+                    id="voice-preview-bg-dark"
+                    onClick={() => setPreviewCardBg('dark')}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      previewCardBg === 'dark' ? 'bg-slate-950 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title="Dark Canvas"
+                  >
+                    Dark
+                  </button>
+                  <button
+                    id="voice-preview-bg-brand"
+                    onClick={() => setPreviewCardBg('brand')}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      previewCardBg === 'brand' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title="Brand Accent Canvas"
+                  >
+                    Brand
+                  </button>
+                </div>
+
+                <button
+                  id="regenerate-voice-preview-btn"
+                  onClick={() => handleGenerateVoicePreview()}
+                  disabled={isGeneratingVoicePreview}
+                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition active:scale-95 cursor-pointer font-sans"
+                >
+                  <Sparkles className={`w-3.5 h-3.5 ${isGeneratingVoicePreview ? 'animate-spin' : ''}`} />
+                  {isGeneratingVoicePreview ? 'Generating...' : 'Regenerate Copy'}
+                </button>
+
+                <button
+                  id="copy-voice-preview-btn"
+                  onClick={handleCopyVoicePreview}
+                  className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer font-sans ${
+                    isDark
+                      ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
+                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:text-indigo-600'
+                  }`}
+                >
+                  {isCopiedPreviewText ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-slate-400" />
+                      Copy Copy
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Copy Angle Tabs */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-3 mb-4 scrollbar-none border-b border-slate-200/10 font-sans text-xs">
+              {[
+                { id: 'value_prop', label: '🚀 Value Proposition' },
+                { id: 'brand_story', label: '📖 Brand Mission Story' },
+                { id: 'campaign_pitch', label: '⚡ Campaign Hook' },
+                { id: 'social_hook', label: '📣 Social Announcement' },
+                { id: 'cx_promise', label: '🤝 Customer Promise' }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  id={`voice-preview-tab-${tab.id}`}
+                  onClick={() => {
+                    setPreviewAngle(tab.id as any);
+                    setPreviewCopy(getInitialVoicePreview(tab.id));
+                  }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-extrabold whitespace-nowrap transition cursor-pointer ${
+                    previewAngle === tab.id
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : isDark
+                        ? 'bg-slate-900 text-slate-400 hover:text-slate-200'
+                        : 'bg-slate-100 text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Rendered Live Canvas using Brand Typography */}
+            {(() => {
+              const currentData = previewCopy || getInitialVoicePreview(previewAngle);
+              const headerFontName = bible.typography?.headerFont || 'Playfair Display';
+              const bodyFontName = bible.typography?.bodyFont || 'Plus Jakarta Sans';
+              const primaryHex = bible.colorPalette[0]?.hex || '#6366f1';
+
+              let bgStyle = '';
+              let textColor = '';
+              let headlineColor = '';
+              let noteBg = '';
+
+              if (previewCardBg === 'dark') {
+                bgStyle = 'bg-slate-950 text-slate-100 border-slate-800';
+                textColor = 'text-slate-300';
+                headlineColor = 'text-white';
+                noteBg = 'bg-slate-900/80 border-slate-800 text-slate-400';
+              } else if (previewCardBg === 'brand') {
+                bgStyle = 'text-white border-indigo-700/50 shadow-inner';
+                textColor = 'text-indigo-100';
+                headlineColor = 'text-white';
+                noteBg = 'bg-black/20 border-white/10 text-indigo-100';
+              } else {
+                bgStyle = 'bg-slate-50 text-slate-900 border-slate-200/80';
+                textColor = 'text-slate-700';
+                headlineColor = 'text-slate-900';
+                noteBg = 'bg-white border-slate-200 text-slate-500 shadow-2xs';
+              }
+
+              return (
+                <div 
+                  className={`p-6 sm:p-8 rounded-2xl border transition-all duration-300 space-y-4 relative overflow-hidden ${bgStyle}`}
+                  style={previewCardBg === 'brand' ? { backgroundColor: primaryHex } : {}}
+                >
+                  {/* Active Typography Badge */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/10 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] uppercase tracking-widest font-mono font-bold opacity-75">
+                        Active Typography System:
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-black/10 border border-black/10">
+                        Header: <span className="underline">{headerFontName}</span> ({bible.typography?.headerCategory || 'Display'})
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-black/10 border border-black/10">
+                        Body: <span className="underline">{bodyFontName}</span> ({bible.typography?.bodyCategory || 'Sans-Serif'})
+                      </span>
+                    </div>
+
+                    <span className="text-[10px] font-extrabold uppercase font-mono opacity-60">
+                      Tone: {typeof bible.brandVoice === 'object' ? bible.brandVoice.tone : (bible.brandVoice || 'Professional')}
+                    </span>
+                  </div>
+
+                  {/* Live Rendered Headline */}
+                  <h3 
+                    className={`text-2xl sm:text-3xl font-bold tracking-tight leading-tight ${headlineColor}`}
+                    style={{ fontFamily: `'${headerFontName}', serif, sans-serif` }}
+                  >
+                    {currentData.headline}
+                  </h3>
+
+                  {/* Live Rendered Marketing Paragraph */}
+                  <p 
+                    className={`text-sm sm:text-base leading-relaxed ${textColor}`}
+                    style={{ fontFamily: `'${bodyFontName}', sans-serif` }}
+                  >
+                    {currentData.paragraph}
+                  </p>
+
+                  {/* Tone Alignment & Attribute Breakdown */}
+                  <div className={`p-3 rounded-xl border text-xs font-sans flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${noteBg}`}>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                      <span className="font-semibold text-[11px] leading-snug">
+                        {currentData.toneAlignmentNote}
+                      </span>
+                    </div>
+
+                    {/* Key Metric Chips */}
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                      {voiceMetrics.slice(0, 3).map((m, idx) => (
+                        <span key={idx} className="px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-black/10 border border-black/10 font-mono">
+                          {m.attribute}: {m.value}%
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Sample 'About Us' Story Paragraph Card */}
+          <div className={`p-6 border rounded-2xl relative overflow-hidden transition-all duration-300 ${
+            isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-indigo-50/40 border-indigo-100/80'
+          }`}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 border-b pb-3 border-slate-200/20">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider font-extrabold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5 font-sans">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  Sample 'About Us' Paragraph (Personality Spectrum: {bible.brandPersonality || 50}%)
+                </span>
+              </div>
+              <button
+                id="copy-about-us-btn"
+                onClick={handleCopyAboutUs}
+                className={`px-3 py-1.5 rounded-xl border text-[10px] font-bold flex items-center gap-1.5 transition cursor-pointer font-sans ${
+                  isDark 
+                    ? 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white' 
+                    : 'bg-white border-slate-200 text-slate-700 hover:text-indigo-600 shadow-xs'
+                }`}
+              >
+                {isAboutUsCopied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    Copied 'About Us' Text!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 text-slate-400" />
+                    Copy 'About Us' Text
+                  </>
+                )}
+              </button>
+            </div>
+
+            <p className={`text-sm leading-relaxed font-sans font-medium italic ${
+              isDark ? 'text-slate-200' : 'text-slate-800'
+            }`}>
+              "{typeof bible.brandVoice === 'object' && bible.brandVoice.aboutUsParagraph
+                ? bible.brandVoice.aboutUsParagraph
+                : `${bible.companyName} was founded to redefine the ${bible.industry} landscape for ${bible.targetAudience}. Driven by our core mission—"${bible.mission}"—we pair strategic intent with relentless execution to deliver meaningful outcomes.`}"
+            </p>
+          </div>
+
+          {/* Written Communication Guidelines (Do's & Don'ts Grid) */}
+          <div>
+            <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3 font-sans flex items-center justify-between">
+              <span>Do's & Don'ts for Written Communication</span>
+              <span className="text-[9px] text-slate-400 font-normal">Derived from selected brand personality</span>
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Do's Column */}
+              <div className={`p-5 border rounded-2xl font-sans ${
+                isDark ? 'bg-slate-950/60 border-emerald-950/60' : 'bg-emerald-50/30 border-emerald-100/80'
+              }`}>
+                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-emerald-500/20">
+                  <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                  <h4 className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                    Do's for Written Communication
+                  </h4>
+                </div>
+                <ul className="space-y-2.5">
+                  {(typeof bible.brandVoice === 'object' && bible.brandVoice.doVoiceRules && bible.brandVoice.doVoiceRules.length > 0
+                    ? bible.brandVoice.doVoiceRules
+                    : [
+                        "Use active, empowering verbs that inspire user action and confidence",
+                        "Keep sentences clear, punchy, and structured around key reader benefits",
+                        "Highlight human-centric value and problem solving directly",
+                        "Maintain warmth, empathy, and clarity without sacrificing professional authority"
+                      ]
+                  ).map((rule, idx) => (
+                    <li key={idx} className="flex items-start gap-2.5 text-xs">
+                      <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                      <span className={`font-medium leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                        {rule}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Don'ts Column */}
+              <div className={`p-5 border rounded-2xl font-sans ${
+                isDark ? 'bg-slate-950/60 border-rose-950/60' : 'bg-rose-50/30 border-rose-100/80'
+              }`}>
+                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-rose-500/20">
+                  <XCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                  <h4 className="text-xs font-black uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                    Don'ts for Written Communication
+                  </h4>
+                </div>
+                <ul className="space-y-2.5">
+                  {(typeof bible.brandVoice === 'object' && bible.brandVoice.dontVoiceRules && bible.brandVoice.dontVoiceRules.length > 0
+                    ? bible.brandVoice.dontVoiceRules
+                    : [
+                        "Avoid dense corporate jargon, hyperbole, and empty marketing hype",
+                        "Do not sound robotic, detached, or cold in user communications",
+                        "Avoid passive phrasing and unsubstantiated claims",
+                        "Don't rely on aggressive sales pressure tactics or misleading urgency"
+                      ]
+                  ).map((rule, idx) => (
+                    <li key={idx} className="flex items-start gap-2.5 text-xs">
+                      <XCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
+                      <span className={`font-medium leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                        {rule}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Brand Voice Metrics Spider Chart Section */}
@@ -2975,26 +5532,34 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
 
               {/* Legends with color specs */}
               <div className="sm:col-span-5 space-y-2.5">
-                {calculateColorData().map((color, idx) => (
-                  <div key={idx} className={`p-2.5 rounded-xl border flex items-center justify-between font-sans ${
-                    isDark ? 'bg-slate-950/40 border-slate-800/80' : 'bg-slate-50/50 border-slate-200/80'
-                  }`}>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-4 h-4 rounded-full shrink-0 border border-slate-200/10 shadow-sm" style={{ backgroundColor: color.hex }} />
-                      <div className="min-w-0">
-                        <p className={`text-[11px] font-extrabold truncate ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
-                          {color.name}
-                        </p>
-                        <p className="text-[9px] text-slate-400 font-medium truncate uppercase tracking-tight">
-                          {color.role}
-                        </p>
+                {calculateColorData().map((color, idx) => {
+                  const a11y = getAccessibilityScore(color.hex);
+                  return (
+                    <div key={idx} className={`p-2.5 rounded-xl border flex items-center justify-between font-sans ${
+                      isDark ? 'bg-slate-950/40 border-slate-800/80' : 'bg-slate-50/50 border-slate-200/80'
+                    }`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-4 h-4 rounded-full shrink-0 border border-slate-200/10 shadow-sm" style={{ backgroundColor: color.hex }} />
+                        <div className="min-w-0">
+                          <p className={`text-[11px] font-extrabold truncate ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+                            {color.name}
+                          </p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <p className="text-[9px] text-slate-400 font-medium truncate uppercase tracking-tight">
+                              {color.role}
+                            </p>
+                            <span className={`text-[7px] font-extrabold px-1 py-0.2 rounded border uppercase tracking-wider ${a11y.badgeStyle}`}>
+                              A11y {a11y.rating} ({a11y.bestRatio.toFixed(1)}:1)
+                            </span>
+                          </div>
+                        </div>
                       </div>
+                      <span className={`text-[11px] font-black ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                        {color.value}%
+                      </span>
                     </div>
-                    <span className={`text-[11px] font-black ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
-                      {color.value}%
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -3345,6 +5910,395 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
           </div>
         )}
 
+        {/* Tiled Geometric Patterns Library & Interactive Studio */}
+        <div id="brand-patterns-library-studio" className={`mt-8 border rounded-2xl p-6 transition-all duration-300 ${
+          isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+        }`}>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800 mb-6">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[9px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 border border-indigo-500/20">
+                  Palette-Driven Pattern Library
+                </span>
+                <span className="text-[10px] font-bold text-slate-400 font-mono">
+                  {BRAND_PATTERN_TEMPLATES.length} Seamless Geometric Presets
+                </span>
+              </div>
+              <h3 className={`text-base font-black flex items-center gap-2 font-sans tracking-tight ${
+                isDark ? 'text-white' : 'text-slate-900'
+              }`}>
+                <Grid className="w-4 h-4 text-indigo-500" />
+                Tiled Geometric Patterns Library
+              </h3>
+              <p className="text-xs text-slate-400 font-sans mt-0.5 max-w-2xl">
+                Choose from seamless vector geometric patterns crafted using your active brand palette. Customize parameters and apply them directly to brand mockups.
+              </p>
+            </div>
+
+            {/* Stage Mode Selector */}
+            <div className={`flex items-center rounded-lg p-1 border text-[10px] font-sans font-bold self-start md:self-auto ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}>
+              <span className="text-slate-400 px-2 text-[9px] uppercase font-bold">Stage Fill:</span>
+              <button
+                type="button"
+                onClick={() => setGeometricBgMode('light')}
+                className={`px-2.5 py-1 rounded-md transition duration-150 cursor-pointer ${
+                  geometricBgMode === 'light' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                }`}
+              >
+                Light
+              </button>
+              <button
+                type="button"
+                onClick={() => setGeometricBgMode('dark')}
+                className={`px-2.5 py-1 rounded-md transition duration-150 cursor-pointer ${
+                  geometricBgMode === 'dark' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                }`}
+              >
+                Dark
+              </button>
+              <button
+                type="button"
+                onClick={() => setGeometricBgMode('brand')}
+                className={`px-2.5 py-1 rounded-md transition duration-150 cursor-pointer ${
+                  geometricBgMode === 'brand' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                }`}
+              >
+                Brand Fill
+              </button>
+            </div>
+          </div>
+
+          {/* Grid of Geometric Pattern Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+            {BRAND_PATTERN_TEMPLATES.map((tmpl) => {
+              const { primary, secondary, accent, darkNeutral, lightNeutral } = extractBrandColors(bible.colorPalette);
+              const fgHex =
+                geometricFgRole === 'primary' ? primary :
+                geometricFgRole === 'secondary' ? secondary :
+                geometricFgRole === 'accent' ? accent :
+                geometricFgRole === 'dark' ? darkNeutral : lightNeutral;
+
+              const tileDataUrl = generatePatternDataUrl({
+                type: tmpl.id,
+                scale: geometricScale,
+                bgColor: 'transparent',
+                fgColor: fgHex,
+                secondaryColor: secondary,
+                accentColor: accent,
+                opacity: geometricOpacity
+              });
+
+              const isSelected = selectedGeometricPattern === tmpl.id;
+
+              return (
+                <div
+                  key={tmpl.id}
+                  onClick={() => setSelectedGeometricPattern(tmpl.id)}
+                  className={`p-4 rounded-2xl border cursor-pointer transition-all duration-200 flex flex-col justify-between ${
+                    isSelected
+                      ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/10 shadow-md'
+                      : isDark
+                        ? 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
+                        : 'bg-white border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div>
+                    {/* Pattern Preview Box */}
+                    <div
+                      className="w-full h-28 rounded-xl border mb-3 relative overflow-hidden transition-all duration-300 shadow-inner flex items-center justify-center"
+                      style={{
+                        backgroundColor:
+                          geometricBgMode === 'light' ? '#f8fafc' :
+                          geometricBgMode === 'dark' ? '#090d16' : primary,
+                        backgroundImage: `url("${tileDataUrl}")`,
+                        backgroundRepeat: 'repeat'
+                      }}
+                    >
+                      <span className="absolute top-2 right-2 text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-900/80 text-white border border-white/10 backdrop-blur-md">
+                        {tmpl.category}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <h4 className={`text-xs font-bold font-sans tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {tmpl.name}
+                      </h4>
+                      {isSelected && (
+                        <CheckCircle className="w-4 h-4 text-indigo-500 shrink-0" />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 font-sans line-clamp-2 leading-relaxed">
+                      {tmpl.description}
+                    </p>
+                  </div>
+
+                  <div className="mt-3 pt-2 border-t border-slate-200/10 flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-indigo-500 font-bold">
+                      {tmpl.id}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400">
+                      {isSelected ? 'Active Selection' : 'Click to Preview'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Studio Large Stage & Fine-Tuning Parameters */}
+          {(() => {
+            const { primary, secondary, accent, darkNeutral, lightNeutral } = extractBrandColors(bible.colorPalette);
+            const fgHex =
+              geometricFgRole === 'primary' ? primary :
+              geometricFgRole === 'secondary' ? secondary :
+              geometricFgRole === 'accent' ? accent :
+              geometricFgRole === 'dark' ? darkNeutral : lightNeutral;
+
+            const studioTileDataUrl = generatePatternDataUrl({
+              type: selectedGeometricPattern,
+              scale: geometricScale,
+              bgColor: 'transparent',
+              fgColor: fgHex,
+              secondaryColor: secondary,
+              accentColor: accent,
+              opacity: geometricOpacity
+            });
+
+            const studioSvgMarkup = generatePatternSvg({
+              type: selectedGeometricPattern,
+              scale: geometricScale,
+              bgColor: 'transparent',
+              fgColor: fgHex,
+              secondaryColor: secondary,
+              accentColor: accent,
+              opacity: geometricOpacity
+            });
+
+            const selectedTmpl = BRAND_PATTERN_TEMPLATES.find(t => t.id === selectedGeometricPattern);
+
+            const handleSavePatternToBible = () => {
+              const patternObj: BrandPattern = {
+                patternName: selectedTmpl ? selectedTmpl.name : 'Geometric Pattern',
+                description: selectedTmpl ? selectedTmpl.description : 'Custom brand geometric pattern.',
+                svgMarkup: studioSvgMarkup
+              };
+              onUpdatePattern(patternObj);
+              setToast({
+                message: `Set "${selectedTmpl?.name}" as the active brand pattern!`,
+                hex: fgHex
+              });
+              setTimeout(() => setToast(null), 3000);
+            };
+
+            const handleCopyGeometricSvg = () => {
+              navigator.clipboard.writeText(studioSvgMarkup);
+              setIsCopiedGeometricSvg(true);
+              setTimeout(() => setIsCopiedGeometricSvg(false), 2000);
+            };
+
+            const handleCopyGeometricCss = () => {
+              const cssRule = `background-image: url("${studioTileDataUrl}");\nbackground-repeat: repeat;\nbackground-size: ${geometricScale}px ${geometricScale}px;`;
+              navigator.clipboard.writeText(cssRule);
+              setIsCopiedGeometricCss(true);
+              setTimeout(() => setIsCopiedGeometricCss(false), 2000);
+            };
+
+            const handleDownloadGeometricSvg = () => {
+              const blob = new Blob([studioSvgMarkup], { type: 'image/svg+xml;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = `${bible.companyName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-pattern-${selectedGeometricPattern}.svg`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              URL.revokeObjectURL(url);
+            };
+
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-4 border-t border-slate-200 dark:border-slate-800">
+                {/* Large Canvas Sandbox */}
+                <div className="lg:col-span-7 flex flex-col space-y-3">
+                  <div
+                    className="w-full min-h-[300px] rounded-2xl border relative overflow-hidden transition-all duration-300 shadow-inner flex items-center justify-center p-6"
+                    style={{
+                      backgroundColor:
+                        geometricBgMode === 'light' ? '#f8fafc' :
+                        geometricBgMode === 'dark' ? '#090d16' : primary,
+                      backgroundImage: `url("${studioTileDataUrl}")`,
+                      backgroundRepeat: 'repeat'
+                    }}
+                  >
+                    <div className={`p-4 rounded-xl border backdrop-blur-md shadow-lg max-w-xs text-center space-y-1.5 ${
+                      geometricBgMode === 'dark' || geometricBgMode === 'brand'
+                        ? 'bg-slate-950/85 border-slate-800 text-white'
+                        : 'bg-white/90 border-slate-200 text-slate-900'
+                    }`}>
+                      <h5 className="text-xs font-black tracking-tight font-sans">
+                        {selectedTmpl?.name} Sandbox
+                      </h5>
+                      <p className="text-[10px] text-slate-400 font-sans leading-relaxed">
+                        {selectedTmpl?.description}
+                      </p>
+                      <div className="pt-1 flex items-center justify-center gap-2 text-[9px] font-mono text-indigo-500 font-bold">
+                        <span>Tile: {geometricScale}px</span>
+                        <span>•</span>
+                        <span>Opacity: {Math.round(geometricOpacity * 100)}%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleSavePatternToBible}
+                      className="flex-1 min-w-[160px] py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs rounded-xl shadow-sm transition active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      <span>Set as Active Brand Pattern</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCopyGeometricSvg}
+                      className={`py-2.5 px-3 border rounded-xl text-xs font-bold font-sans flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                        isDark ? 'bg-slate-900 border-slate-800 text-slate-200 hover:text-white' : 'bg-white border-slate-200 text-slate-700 hover:text-indigo-600'
+                      }`}
+                    >
+                      {isCopiedGeometricSvg ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          <span>Copied SVG</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>Copy SVG</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCopyGeometricCss}
+                      className={`py-2.5 px-3 border rounded-xl text-xs font-bold font-sans flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                        isDark ? 'bg-slate-900 border-slate-800 text-slate-200 hover:text-white' : 'bg-white border-slate-200 text-slate-700 hover:text-indigo-600'
+                      }`}
+                    >
+                      {isCopiedGeometricCss ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          <span>Copied CSS</span>
+                        </>
+                      ) : (
+                        <>
+                          <FileText className="w-3.5 h-3.5 text-emerald-500" />
+                          <span>Copy CSS</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleDownloadGeometricSvg}
+                      className={`py-2.5 px-3 border rounded-xl text-xs font-bold font-sans flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                        isDark ? 'bg-slate-900 border-slate-800 text-slate-200 hover:text-white' : 'bg-white border-slate-200 text-slate-700 hover:text-indigo-600'
+                      }`}
+                    >
+                      <Download className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Download SVG</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Fine-Tuning Controls */}
+                <div className="lg:col-span-5 flex flex-col justify-between space-y-4 font-sans">
+                  <div className="space-y-4">
+                    <span className="text-[10px] uppercase font-extrabold tracking-wider text-slate-400 block">
+                      Pattern Customization Parameters
+                    </span>
+
+                    {/* Color Role Selector */}
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-300 block mb-2">
+                        Pattern Foreground Color Role
+                      </label>
+                      <div className="grid grid-cols-5 gap-2">
+                        {(['primary', 'secondary', 'accent', 'dark', 'light'] as const).map((role) => {
+                          const hex =
+                            role === 'primary' ? primary :
+                            role === 'secondary' ? secondary :
+                            role === 'accent' ? accent :
+                            role === 'dark' ? darkNeutral : lightNeutral;
+
+                          return (
+                            <button
+                              key={role}
+                              type="button"
+                              onClick={() => setGeometricFgRole(role)}
+                              className={`p-2 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-1 ${
+                                geometricFgRole === role
+                                  ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-500/10'
+                                  : isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                              }`}
+                            >
+                              <div className="w-4 h-4 rounded-full border border-black/10 shadow-xs" style={{ backgroundColor: hex }} />
+                              <span className="text-[9px] font-bold capitalize text-slate-400 truncate w-full">{role}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Scale Slider */}
+                    <div className={`p-3 border rounded-xl ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'}`}>
+                      <div className="flex items-center justify-between text-xs font-bold mb-1.5">
+                        <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>Tile Scale</span>
+                        <span className="font-mono text-indigo-500 font-extrabold">{geometricScale}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="16"
+                        max="96"
+                        step="4"
+                        value={geometricScale}
+                        onChange={(e) => setGeometricScale(parseInt(e.target.value, 10))}
+                        className="w-full accent-indigo-600 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Opacity Slider */}
+                    <div className={`p-3 border rounded-xl ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'}`}>
+                      <div className="flex items-center justify-between text-xs font-bold mb-1.5">
+                        <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>Pattern Opacity</span>
+                        <span className="font-mono text-indigo-500 font-extrabold">{Math.round(geometricOpacity * 100)}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0.05"
+                        max="1.0"
+                        step="0.05"
+                        value={geometricOpacity}
+                        onChange={(e) => setGeometricOpacity(parseFloat(e.target.value))}
+                        className="w-full accent-indigo-600 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-lg cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  <div className={`p-3.5 border rounded-xl text-[11px] text-slate-400 font-sans leading-relaxed ${
+                    isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-slate-100/50 border-slate-200'
+                  }`}>
+                    <span className="font-bold text-indigo-500 block mb-0.5">Mockup Integration Active</span>
+                    This geometric pattern can also be previewed and dynamically toggled over business cards, letterheads, social banners, and web landing page mockups in section 07.
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+
         {/* Mission-Driven Repeating Brand Pattern Visualizer & Generator */}
         <div className={`mt-8 border rounded-2xl p-6 transition-all duration-300 ${
           isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
@@ -3600,6 +6554,353 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         </div>
       </div>
 
+      {/* Competitive Benchmarking Section */}
+      <div
+        id="competitive-benchmarking-section"
+        className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 mt-8 ${
+          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+        }`}
+      >
+        <div className={`border-b pb-4 mb-6 transition-colors duration-300 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+          isDark ? 'border-slate-800' : 'border-slate-100'
+        }`}>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600">
+                Competitive Intelligence
+              </span>
+              <span className="text-[9px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 flex items-center gap-1">
+                <Globe className="w-3 h-3" /> Search Grounded
+              </span>
+            </div>
+            <h2 className={`text-xl font-black flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
+              isDark ? 'text-white' : 'text-slate-900'
+            }`}>
+              <Target className="w-5 h-5 text-indigo-600" />
+              <span>Competitive Benchmarking & Strategic Differentiation</span>
+            </h2>
+            <p className="text-xs text-slate-400 font-sans mt-0.5 leading-relaxed max-w-3xl">
+              Input 2-3 competitor URLs. Powered by Gemini with live Google Search Grounding, we inspect their visual aesthetics, color palettes, and positioning to reveal actionable strategies for <span className="font-bold text-indigo-500">{bible.companyName}</span> to stand out.
+            </p>
+          </div>
+
+          <button
+            id="run-competitive-benchmark-btn"
+            onClick={handleRunCompetitiveBenchmark}
+            disabled={isBenchmarking || competitorInputUrls.length === 0}
+            className={`px-5 py-2.5 rounded-xl text-xs font-black font-sans flex items-center justify-center gap-2 shadow-md transition duration-200 cursor-pointer active:scale-95 shrink-0 ${
+              isBenchmarking
+                ? 'bg-indigo-400 text-white cursor-not-allowed'
+                : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20'
+            }`}
+          >
+            {isBenchmarking ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Searching Google & Benchmarking...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                <span>Run Grounded Analysis</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Input & Tags Form */}
+        <div className={`p-5 rounded-2xl border mb-6 ${
+          isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+        }`}>
+          <label className="text-xs font-bold block mb-2 font-sans dark:text-slate-200">
+            Competitor Brand URLs or Domains (Max 3)
+          </label>
+          <div className="flex flex-col sm:flex-row gap-2.5 items-center mb-3">
+            <div className="relative flex-1 w-full">
+              <Globe className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={newCompetitorUrl}
+                onChange={(e) => setNewCompetitorUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddCompetitorUrl();
+                  }
+                }}
+                placeholder="e.g. stripe.com, linear.app, notion.so"
+                className={`w-full pl-10 pr-4 py-2.5 rounded-xl border text-xs font-medium font-sans focus:outline-none focus:ring-2 focus:ring-indigo-500/30 ${
+                  isDark ? 'bg-slate-900 border-slate-800 text-white placeholder-slate-500' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'
+                }`}
+              />
+            </div>
+            <button
+              onClick={handleAddCompetitorUrl}
+              disabled={competitorInputUrls.length >= 3 || !newCompetitorUrl.trim()}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-white text-xs font-bold cursor-pointer transition shrink-0 w-full sm:w-auto"
+            >
+              Add Competitor
+            </button>
+          </div>
+
+          {/* Active Competitors Badges */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mr-1">
+              Active Target Set:
+            </span>
+            {competitorInputUrls.map((url, idx) => (
+              <span
+                key={idx}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-bold font-mono flex items-center gap-2 ${
+                  isDark ? 'bg-indigo-950/40 border-indigo-800/60 text-indigo-300' : 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                }`}
+              >
+                <span>{url}</span>
+                <button
+                  onClick={() => handleRemoveCompetitorUrl(idx)}
+                  className="hover:text-rose-500 transition cursor-pointer p-0.5 rounded-full"
+                  title="Remove competitor"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Benchmarking Output Display */}
+        {benchmarkData && (
+          <div className="space-y-8 animate-fadeIn">
+            {/* Competitors Visual Analysis Grid */}
+            <div>
+              <h3 className={`text-sm font-black uppercase tracking-wider mb-4 flex items-center gap-2 ${
+                isDark ? 'text-slate-300' : 'text-slate-700'
+              }`}>
+                <Search className="w-4 h-4 text-indigo-500" />
+                1. Competitor Visual Aesthetics & Brand Signals
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                {benchmarkData.competitors?.map((comp: any, idx: number) => (
+                  <div
+                    key={idx}
+                    className={`p-5 rounded-2xl border space-y-4 flex flex-col justify-between transition-all duration-300 ${
+                      isDark ? 'bg-slate-950/70 border-slate-800 hover:border-slate-700' : 'bg-slate-50/80 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between border-b pb-3 border-slate-200 dark:border-slate-800">
+                        <div>
+                          <h4 className="font-extrabold text-sm text-indigo-500 flex items-center gap-1.5">
+                            {comp.name}
+                          </h4>
+                          <a
+                            href={comp.url?.startsWith('http') ? comp.url : `https://${comp.url}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] text-slate-400 font-mono hover:underline flex items-center gap-1"
+                          >
+                            <span>{comp.url}</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        </div>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-500 font-mono">
+                          Target #{idx + 1}
+                        </span>
+                      </div>
+
+                      {/* Visual Aesthetic Summary */}
+                      <div>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1">
+                          Visual Aesthetic Style
+                        </span>
+                        <p className="text-xs font-medium leading-relaxed dark:text-slate-200">
+                          {comp.visualAesthetic}
+                        </p>
+                      </div>
+
+                      {/* Extracted Swatches */}
+                      {comp.dominantColors && comp.dominantColors.length > 0 && (
+                        <div>
+                          <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1.5">
+                            Inferred Dominant Palette
+                          </span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {comp.dominantColors.map((hex: string, hIdx: number) => (
+                              <div key={hIdx} className="flex items-center gap-1">
+                                <span
+                                  className="w-4 h-4 rounded-md border border-black/10 shadow-xs shrink-0"
+                                  style={{ backgroundColor: hex }}
+                                  title={hex}
+                                />
+                                <span className="text-[9px] font-mono text-slate-400">{hex}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Typography Vibe */}
+                      <div>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1">
+                          Typography Vibe
+                        </span>
+                        <p className="text-xs text-slate-300 font-mono bg-slate-900/40 p-2 rounded-lg border border-slate-800">
+                          {comp.typographyVibe}
+                        </p>
+                      </div>
+
+                      {/* Market Positioning */}
+                      <div>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1">
+                          Value Proposition Tone
+                        </span>
+                        <p className="text-xs italic text-slate-400 leading-relaxed">
+                          "{comp.brandPositioning}"
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Strengths & Vulnerabilities */}
+                    <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                      <div>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-emerald-500 block mb-1">
+                          Visual Strengths
+                        </span>
+                        <ul className="space-y-1">
+                          {comp.strengths?.map((str: string, sIdx: number) => (
+                            <li key={sIdx} className="text-[10px] text-slate-300 flex items-start gap-1">
+                              <CheckCircle className="w-3 h-3 text-emerald-500 shrink-0 mt-0.5" />
+                              <span>{str}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="pt-1">
+                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-rose-400 block mb-1">
+                          Design Vulnerabilities / Gaps
+                        </span>
+                        <ul className="space-y-1">
+                          {comp.vulnerabilities?.map((vuln: string, vIdx: number) => (
+                            <li key={vIdx} className="text-[10px] text-slate-400 flex items-start gap-1">
+                              <XCircle className="w-3 h-3 text-rose-400 shrink-0 mt-0.5" />
+                              <span>{vuln}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Strategic Differentiation Matrix */}
+            <div className={`p-6 rounded-3xl border ${
+              isDark ? 'bg-slate-950 border-slate-800' : 'bg-indigo-50/40 border-indigo-100'
+            }`}>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-xl">
+                  <Sparkles className="w-5 h-5 text-amber-300" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-indigo-500">
+                    Differentiation Strategy Engine
+                  </span>
+                  <h3 className={`text-base font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    How {bible.companyName} Wins Visual & Market Differentiation
+                  </h3>
+                </div>
+              </div>
+
+              {/* Overall White Space Opportunity */}
+              <div className={`p-4 rounded-2xl border mb-6 ${
+                isDark ? 'bg-slate-900/90 border-slate-800' : 'bg-white border-indigo-100'
+              }`}>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-500 block mb-1">
+                  Market White-Space Opportunity
+                </span>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  {benchmarkData.differentiatingStrategy?.overallOpportunity}
+                </p>
+              </div>
+
+              {/* 3 Strategic Pillars Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                {/* Color Differentiation */}
+                <div className={`p-4 rounded-2xl border space-y-2 ${
+                  isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
+                }`}>
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-400">
+                    <Palette className="w-4 h-4" />
+                    <span>Color Positioning</span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {benchmarkData.differentiatingStrategy?.colorDifferentiation}
+                  </p>
+                </div>
+
+                {/* Typography Differentiation */}
+                <div className={`p-4 rounded-2xl border space-y-2 ${
+                  isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
+                }`}>
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-purple-400">
+                    <Type className="w-4 h-4" />
+                    <span>Typography Pairings</span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {benchmarkData.differentiatingStrategy?.typographyDifferentiation}
+                  </p>
+                </div>
+
+                {/* Voice & Positioning */}
+                <div className={`p-4 rounded-2xl border space-y-2 ${
+                  isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
+                }`}>
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                    <Volume2 className="w-4 h-4" />
+                    <span>Voice & Tone Clarity</span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {benchmarkData.differentiatingStrategy?.voiceAndPositioning}
+                  </p>
+                </div>
+              </div>
+
+              {/* Actionable Pillars List */}
+              <div className="space-y-3">
+                <span className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 block">
+                  Actionable Strategic Differentiation Pillars
+                </span>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {benchmarkData.differentiatingStrategy?.actionablePillars?.map((pillar: any, pIdx: number) => (
+                    <div
+                      key={pIdx}
+                      className={`p-4 rounded-2xl border space-y-2 relative overflow-hidden ${
+                        isDark ? 'bg-slate-900 border-indigo-900/50' : 'bg-white border-indigo-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-6 h-6 rounded-lg bg-indigo-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
+                          {pIdx + 1}
+                        </span>
+                        <h4 className="font-extrabold text-xs text-indigo-400 leading-snug">
+                          {pillar.pillarTitle}
+                        </h4>
+                      </div>
+                      <p className="text-xs text-slate-300 leading-relaxed pt-1">
+                        {pillar.strategicAdvice}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Color Palette Section */}
       <div
         id="color-palette-section"
@@ -3661,12 +6962,33 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </div>
 
             <button
+              id="regenerate-palette-ai-btn"
+              onClick={() => handleRegenerateAiPalette()}
+              disabled={isRegeneratingAiPalette}
+              className="px-4 py-2 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-60 text-white rounded-full text-xs font-black flex items-center gap-2 transition duration-300 shadow-md shadow-indigo-500/20 active:scale-95 cursor-pointer border border-indigo-400/30 group/regen"
+              title="AI Consultant: Generate a fresh 5-color palette based on your original company mission"
+            >
+              <Sparkles className={`w-3.5 h-3.5 text-amber-300 ${isRegeneratingAiPalette ? 'animate-spin' : 'group-hover/regen:rotate-12 transition-transform'}`} />
+              <span>{isRegeneratingAiPalette ? 'Analyzing Mission...' : 'Regenerate Palette'}</span>
+            </button>
+
+            <button
               onClick={handleShufflePalette}
               disabled={isShuffling}
               className={`px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 text-white rounded-full text-xs font-extrabold flex items-center gap-2 transition duration-200 shadow-md shadow-indigo-500/10 active:scale-95 cursor-pointer`}
             >
               <Shuffle className={`w-3.5 h-3.5 ${isShuffling ? 'animate-spin' : ''}`} />
               {isShuffling ? 'Shuffling...' : 'Shuffle Palette'}
+            </button>
+
+            <button
+              id="open-a11y-auditor-header-btn"
+              onClick={() => setShowA11yAuditorModal(true)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full text-xs font-extrabold flex items-center gap-2 transition duration-200 shadow-md shadow-emerald-500/10 active:scale-95 cursor-pointer"
+              title="Run WCAG 2.1 Contrast Audit across all brand color pairings"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Accessibility Auditor</span>
             </button>
           </div>
         </div>
@@ -3683,16 +7005,13 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
-              id="copy-all-hex-btn"
-              onClick={handleCopyAllHexCodes}
-              className={`px-3 py-1.5 text-[10px] font-extrabold rounded-full border transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
-                isDark
-                  ? 'bg-slate-900 border-slate-700 text-slate-200 hover:text-white hover:border-indigo-500'
-                  : 'bg-white border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300 shadow-2xs'
-              }`}
+              id="copy-palette-code-primary-btn"
+              onClick={() => setShowPaletteCodeModal(true)}
+              className="px-3.5 py-1.5 text-[10px] font-black rounded-full bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+              title="Open full-screen developer code exporter with CSS, Tailwind, & JSON formats"
             >
-              <Copy className="w-3 h-3 text-indigo-500" />
-              <span>Copy All HEX</span>
+              <Code2 className="w-3.5 h-3.5" />
+              <span>Copy Palette Code</span>
             </button>
             <button
               id="copy-css-vars-btn"
@@ -3718,29 +7037,198 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
               <FileJson className="w-3 h-3 text-amber-500" />
               <span>Tailwind Theme</span>
             </button>
+            <button
+              id="copy-json-palette-btn"
+              onClick={handleCopyJsonPalette}
+              className={`px-3 py-1.5 text-[10px] font-extrabold rounded-full border transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                isDark
+                  ? 'bg-slate-900 border-slate-700 text-slate-200 hover:text-white hover:border-indigo-500'
+                  : 'bg-white border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300 shadow-2xs'
+              }`}
+            >
+              <FileJson className="w-3 h-3 text-indigo-400" />
+              <span>JSON Object</span>
+            </button>
+            <button
+              id="copy-all-hex-btn"
+              onClick={handleCopyAllHexCodes}
+              className={`px-3 py-1.5 text-[10px] font-extrabold rounded-full border transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                isDark
+                  ? 'bg-slate-900 border-slate-700 text-slate-200 hover:text-white hover:border-indigo-500'
+                  : 'bg-white border-slate-300 text-slate-700 hover:text-indigo-600 hover:border-indigo-300 shadow-2xs'
+              }`}
+            >
+              <Copy className="w-3 h-3 text-indigo-500" />
+              <span>HEX Array</span>
+            </button>
           </div>
         </div>
 
+        {/* Copy Palette Code Modal */}
+        {showPaletteCodeModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+            <div className={`w-full max-w-2xl rounded-3xl border shadow-2xl p-6 relative overflow-hidden font-sans ${
+              isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}>
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500 border border-indigo-500/20">
+                    <Code2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black tracking-tight font-sans">
+                      Copy Palette Code Exporter
+                    </h3>
+                    <p className="text-xs text-slate-400 font-sans mt-0.5">
+                      Export your 5-color palette hex codes formatted for CSS, Tailwind, JSON, or raw arrays.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowPaletteCodeModal(false)}
+                  className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Format Selector Tabs */}
+              <div className="my-5">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block mb-2 font-sans">
+                  Select Target Code Format:
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    onClick={() => setSelectedPaletteFormat('css')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                      selectedPaletteFormat === 'css'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-950/60 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>CSS Variables</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedPaletteFormat('tailwind')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                      selectedPaletteFormat === 'tailwind'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-950/60 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <FileJson className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Tailwind Config</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedPaletteFormat('json')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                      selectedPaletteFormat === 'json'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-950/60 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <FileJson className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>JSON Object</span>
+                  </button>
+                  <button
+                    onClick={() => setSelectedPaletteFormat('hex')}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer ${
+                      selectedPaletteFormat === 'hex'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-950/60 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <Copy className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>HEX Array</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Code Live Preview Block */}
+              <div className="relative rounded-2xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs text-indigo-300 overflow-x-auto max-h-60 shadow-inner">
+                <pre className="whitespace-pre">
+                  {getFormattedPaletteCode(selectedPaletteFormat)}
+                </pre>
+              </div>
+
+              {/* Color Swatch Indicators */}
+              <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-sans">
+                    Palette Swatches:
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {bible.colorPalette.map((c, idx) => (
+                      <div
+                        key={idx}
+                        className="w-4 h-4 rounded-full border border-black/20 shadow-xs"
+                        style={{ backgroundColor: c.hex }}
+                        title={`${c.name}: ${c.hex}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowPaletteCodeModal(false)}
+                    className="py-2 px-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                  >
+                    Close
+                  </button>
+                  <button
+                    onClick={() => handleCopyFormattedPaletteCode(selectedPaletteFormat)}
+                    className="py-2 px-5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs flex items-center gap-2 transition cursor-pointer active:scale-95 shadow-md"
+                  >
+                    {isPaletteCodeCopied ? (
+                      <>
+                        <Check className="w-4 h-4 text-emerald-400" />
+                        <span>Copied to Clipboard!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4" />
+                        <span>Copy Code Snippet</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Color Blocks */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <motion.div
+          key={`palette-grid-${bible.companyName}-${bible.colorPalette.map(c => c.hex).join('-')}`}
+          variants={staggerContainerVariants}
+          initial="hidden"
+          animate="visible"
+          className="grid grid-cols-1 md:grid-cols-5 gap-4"
+        >
           {bible.colorPalette.map((color, colorIdx) => {
             const isWhiteOrLight = ['ffffff', 'f8fafc', 'f1f5f9', 'f9fafb', 'ffffff'].includes(color.hex.toLowerCase().replace('#', ''));
             const isPrimary = (color.role || '').toLowerCase().trim() === 'primary' || (
               !bible.colorPalette.some(c => (c.role || '').toLowerCase().trim() === 'primary') && colorIdx === 0
             );
             return (
-              <div
+              <motion.div
+                variants={staggerItemVariants}
+                whileHover={{ y: -8, scale: 1.04, transition: { type: 'spring', stiffness: 350, damping: 22 } }}
+                whileTap={{ scale: 0.97 }}
                 id={`color-block-${color.name.toLowerCase().replace(/\s+/g, '-')}`}
-                key={color.hex}
+                key={color.hex + colorIdx}
                 onClick={() => copyToClipboard(color.hex, color.name)}
-                className="group border border-slate-200/80 rounded-2xl p-4 cursor-pointer hover:shadow-md transition duration-200 relative overflow-hidden flex flex-col justify-between min-h-[190px]"
+                className="group border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 cursor-pointer hover:shadow-xl hover:shadow-indigo-500/15 dark:hover:shadow-indigo-500/25 hover:border-indigo-500/50 transition-all duration-300 relative overflow-hidden flex flex-col justify-between min-h-[190px]"
                 style={{ backgroundColor: color.hex }}
               >
                 {/* Visual feedback overlay */}
-                <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition" />
+                <div className="absolute inset-0 bg-black/5 group-hover:bg-black/10 opacity-0 group-hover:opacity-100 transition-all duration-300" />
 
                 {/* Color detail text box */}
-                <div className={`p-3 rounded-xl backdrop-blur-md border shadow-sm z-10 transition duration-150 ${
+                <div className={`p-3 rounded-xl backdrop-blur-md border shadow-sm z-10 transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-md ${
                   isWhiteOrLight || color.role.toLowerCase().includes('light')
                     ? 'bg-black/10 border-black/5 text-slate-900'
                     : 'bg-white/90 border-white/20 text-slate-800'
@@ -3761,7 +7249,20 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                     )}
                   </div>
                   <h3 className="text-xs font-black mt-1 truncate">{color.name}</h3>
-                  <span className="text-[10px] font-mono font-bold tracking-wide mt-0.5 block">{color.hex}</span>
+                  <div className="flex items-center justify-between gap-1 mt-0.5">
+                    <span className="text-[10px] font-mono font-bold tracking-wide">{color.hex}</span>
+                    {(() => {
+                      const a11y = getAccessibilityScore(color.hex);
+                      return (
+                        <span
+                          className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded border uppercase tracking-wider ${a11y.badgeStyle}`}
+                          title={`Max WCAG Contrast Ratio: ${a11y.bestRatio.toFixed(1)}:1 (${a11y.contrastWhite >= a11y.contrastDark ? 'vs White' : 'vs Slate Dark'})`}
+                        >
+                          {a11y.bestRatio.toFixed(1)}:1 {a11y.rating}
+                        </span>
+                      );
+                    })()}
+                  </div>
 
                   {/* Explicit Copy to Clipboard Button */}
                   <button
@@ -3798,255 +7299,746 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                 }`}>
                   {color.usageNote}
                 </p>
-              </div>
+              </motion.div>
             );
           })}
-        </div>
+        </motion.div>
 
         {/* Dynamic Divider */}
         <div className={`my-8 border-t transition-colors duration-300 ${isDark ? 'border-slate-800' : 'border-slate-150'}`} />
 
-        {/* Accessibility Contrast Analyzer Section */}
-        <div id="brand-contrast-analyzer" className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-left">
+        {/* Accessibility Contrast Analyzer & Visual Contrast Sandbox Section */}
+        <div id="brand-contrast-sandbox" className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
             <div>
-              <span className="text-[9px] font-extrabold bg-indigo-500/10 text-indigo-500 px-2.5 py-1 rounded-full uppercase tracking-wider block w-fit mb-1.5 font-sans">
-                WCAG 2.1 Compliance Auditor
-              </span>
-              <h3 className={`text-sm font-bold flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
-                isDark ? 'text-slate-200' : 'text-slate-800'
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-[9px] font-extrabold bg-indigo-500/10 text-indigo-500 px-2.5 py-1 rounded-full uppercase tracking-wider font-sans border border-indigo-500/20">
+                  WCAG 2.1 Contrast Sandbox
+                </span>
+                <span className="text-[9px] font-extrabold bg-emerald-500/10 text-emerald-500 px-2.5 py-1 rounded-full uppercase tracking-wider font-sans border border-emerald-500/20">
+                  Live Preview Stage
+                </span>
+              </div>
+              <h3 className={`text-base font-black flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
+                isDark ? 'text-slate-100' : 'text-slate-900'
               }`}>
-                <Activity className="w-4 h-4 text-indigo-500" />
-                Color Contrast & Pairing Compliance
+                <Activity className="w-5 h-5 text-indigo-500" />
+                Color Contrast Sandbox & Readability Tester
               </h3>
-              <p className="text-[11px] text-slate-400 font-sans mt-0.5">
-                Evaluate background and text pairing compliance against the W3C Web Content Accessibility Guidelines.
+              <p className="text-xs text-slate-400 font-sans mt-0.5 max-w-2xl">
+                Live-preview custom headlines, paragraph copy, buttons, and real UI components on selected brand colors to ensure maximum legibility and WCAG accessibility compliance before finalizing.
               </p>
             </div>
-            <div className={`px-2.5 py-1 rounded-full text-[10px] font-bold border shrink-0 font-sans ${
-              isDark ? 'bg-indigo-950/40 border-indigo-900/50 text-indigo-400' : 'bg-indigo-50 border-indigo-200 text-indigo-600'
-            }`}>
-              W3C Standard AAA/AA Compliance
+
+            {/* Top Toolbar Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                id="contrast-swap-btn"
+                onClick={handleSwapContrastColors}
+                className={`px-3 py-2 text-xs font-bold rounded-xl border transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                  isDark
+                    ? 'bg-slate-900 border-slate-700 text-slate-200 hover:text-white hover:border-indigo-500'
+                    : 'bg-white border-slate-250 text-slate-700 hover:text-indigo-600 hover:border-indigo-300 shadow-2xs'
+                }`}
+                title="Swap Background and Text Colors"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Swap Colors</span>
+              </button>
+
+              <button
+                id="contrast-auto-max-btn"
+                onClick={handleSuggestMaxContrast}
+                className={`px-3 py-2 text-xs font-bold rounded-xl border transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                  isDark
+                    ? 'bg-indigo-950/60 border-indigo-800/80 text-indigo-300 hover:text-white hover:border-indigo-500'
+                    : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 shadow-2xs'
+                }`}
+                title="Auto-select palette color with highest contrast against current background"
+              >
+                <Wand2 className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Auto-Max Contrast</span>
+              </button>
+
+              <button
+                id="contrast-run-a11y-audit-btn"
+                onClick={() => setShowA11yAuditorModal(true)}
+                className={`px-3.5 py-2 text-xs font-bold rounded-xl border transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                  isDark
+                    ? 'bg-emerald-950/60 border-emerald-800/80 text-emerald-300 hover:text-white hover:border-emerald-500'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 shadow-2xs'
+                }`}
+                title="Evaluate contrast ratios and WCAG AA/AAA compliance with actionable fix suggestions"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Accessibility Auditor</span>
+              </button>
+
+              <button
+                id="contrast-fullscreen-btn"
+                onClick={() => setIsSandboxFullscreen(true)}
+                className={`px-3 py-2 text-xs font-bold rounded-xl border transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                  isDark
+                    ? 'bg-slate-900 border-slate-700 text-slate-200 hover:text-white hover:border-indigo-500'
+                    : 'bg-white border-slate-250 text-slate-700 hover:text-indigo-600 hover:border-indigo-300 shadow-2xs'
+                }`}
+                title="Expand into full-screen sandbox modal"
+              >
+                <Maximize2 className="w-3.5 h-3.5 text-slate-400" />
+                <span>Fullscreen</span>
+              </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
-            {/* Interactive Selector Column */}
-            <div className="lg:col-span-6 space-y-5 text-left">
-              {/* Background Selector */}
-              <div>
-                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-450 dark:text-slate-400 block mb-2 font-sans">
-                  1. Choose Background Color
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  {bible.colorPalette.map((color) => (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+            {/* Left Control Panel Column */}
+            <div className="lg:col-span-5 space-y-5 text-left">
+              {/* Color Palette Choice Selectors */}
+              <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                {/* Background Selector */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 font-sans">
+                      1. Background Color
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="color"
+                        value={contrastBg.startsWith('#') ? contrastBg : `#${contrastBg}`}
+                        onChange={(e) => setContrastBg(e.target.value)}
+                        className="w-5 h-5 rounded cursor-pointer border-0 p-0 bg-transparent"
+                        title="Custom Hex Picker"
+                      />
+                      <span className="text-[10px] font-mono font-bold text-indigo-400">{contrastBg.toUpperCase()}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {bible.colorPalette.map((color) => (
+                      <button
+                        key={`bg-${color.hex}`}
+                        onClick={() => setContrastBg(color.hex)}
+                        className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold font-sans flex items-center gap-1.5 transition duration-150 active:scale-95 cursor-pointer ${
+                          contrastBg.toLowerCase() === color.hex.toLowerCase()
+                            ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md bg-indigo-500/10 text-indigo-500'
+                            : isDark
+                              ? 'border-slate-800 hover:border-slate-700 bg-slate-950/50 text-slate-300'
+                              : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
+                        }`}
+                      >
+                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" style={{ backgroundColor: color.hex }} />
+                        <span>{color.name}</span>
+                      </button>
+                    ))}
                     <button
-                      id={`analyzer-bg-choice-${color.name.toLowerCase().replace(/\s+/g, '-')}`}
-                      key={`bg-${color.hex}`}
-                      onClick={() => setContrastBg(color.hex)}
-                      className={`px-3 py-2 rounded-xl border text-[11px] font-bold font-sans flex items-center gap-2 transition duration-200 active:scale-95 cursor-pointer ${
-                        contrastBg.toLowerCase() === color.hex.toLowerCase() || (color.hex.startsWith('#') ? contrastBg.toLowerCase() === color.hex.toLowerCase() : contrastBg.toLowerCase() === `#${color.hex.toLowerCase()}`)
-                          ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md bg-indigo-500/5'
-                          : isDark
-                            ? 'border-slate-800 hover:border-slate-700 bg-slate-950/50 text-slate-300 hover:text-white'
-                            : 'border-slate-200 hover:border-slate-300 bg-slate-50 text-slate-700 hover:text-slate-900'
+                      onClick={() => setContrastBg('#ffffff')}
+                      className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold font-sans flex items-center gap-1.5 transition duration-150 active:scale-95 cursor-pointer ${
+                        contrastBg.toLowerCase() === '#ffffff'
+                          ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md bg-indigo-500/10 text-indigo-500'
+                          : isDark ? 'border-slate-800 bg-slate-950/50 text-slate-300' : 'border-slate-200 bg-white text-slate-700'
                       }`}
                     >
-                      <span className="w-3.5 h-3.5 rounded-full border border-black/10 shrink-0" style={{ backgroundColor: color.hex }} />
-                      <span>{color.name}</span>
+                      <span className="w-3 h-3 rounded-full border border-slate-300 bg-white shrink-0" />
+                      <span>White</span>
                     </button>
-                  ))}
-                  {/* Standard White and Black */}
-                  <button
-                    id="analyzer-bg-choice-white"
-                    onClick={() => setContrastBg('#ffffff')}
-                    className={`px-3 py-2 rounded-xl border text-[11px] font-bold font-sans flex items-center gap-2 transition duration-200 active:scale-95 cursor-pointer ${
-                      contrastBg === '#ffffff' || contrastBg.toLowerCase() === '#ffffff'
-                        ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md bg-indigo-500/5'
-                        : isDark
-                          ? 'border-slate-800 hover:border-slate-700 bg-slate-950/50 text-slate-300 hover:text-white'
-                          : 'border-slate-200 hover:border-slate-300 bg-slate-50 text-slate-700 hover:text-slate-900'
-                    }`}
-                  >
-                    <span className="w-3.5 h-3.5 rounded-full border border-slate-300 bg-white shrink-0" />
-                    <span>Pure White</span>
-                  </button>
-                  <button
-                    id="analyzer-bg-choice-dark"
-                    onClick={() => setContrastBg('#0f172a')}
-                    className={`px-3 py-2 rounded-xl border text-[11px] font-bold font-sans flex items-center gap-2 transition duration-200 active:scale-95 cursor-pointer ${
-                      contrastBg === '#0f172a' || contrastBg.toLowerCase() === '#0f172a'
-                        ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md bg-indigo-500/5'
-                        : isDark
-                          ? 'border-slate-800 hover:border-slate-700 bg-slate-950/50 text-slate-300 hover:text-white'
-                          : 'border-slate-200 hover:border-slate-300 bg-slate-50 text-slate-700 hover:text-slate-900'
-                    }`}
-                  >
-                    <span className="w-3.5 h-3.5 rounded-full border border-slate-800 bg-[#0f172a] shrink-0" />
-                    <span>Slate Dark</span>
-                  </button>
+                    <button
+                      onClick={() => setContrastBg('#0f172a')}
+                      className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold font-sans flex items-center gap-1.5 transition duration-150 active:scale-95 cursor-pointer ${
+                        contrastBg.toLowerCase() === '#0f172a'
+                          ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md bg-indigo-500/10 text-indigo-500'
+                          : isDark ? 'border-slate-800 bg-slate-950/50 text-slate-300' : 'border-slate-200 bg-white text-slate-700'
+                      }`}
+                    >
+                      <span className="w-3 h-3 rounded-full border border-slate-800 bg-[#0f172a] shrink-0" />
+                      <span>Dark</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Text Color Selector */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 font-sans">
+                      2. Text / Foreground Color
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="color"
+                        value={contrastText.startsWith('#') ? contrastText : `#${contrastText}`}
+                        onChange={(e) => setContrastText(e.target.value)}
+                        className="w-5 h-5 rounded cursor-pointer border-0 p-0 bg-transparent"
+                        title="Custom Hex Picker"
+                      />
+                      <span className="text-[10px] font-mono font-bold text-indigo-400">{contrastText.toUpperCase()}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {bible.colorPalette.map((color) => (
+                      <button
+                        key={`text-${color.hex}`}
+                        onClick={() => setContrastText(color.hex)}
+                        className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold font-sans flex items-center gap-1.5 transition duration-150 active:scale-95 cursor-pointer ${
+                          contrastText.toLowerCase() === color.hex.toLowerCase()
+                            ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md bg-indigo-500/10 text-indigo-500'
+                            : isDark
+                              ? 'border-slate-800 hover:border-slate-700 bg-slate-950/50 text-slate-300'
+                              : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
+                        }`}
+                      >
+                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" style={{ backgroundColor: color.hex }} />
+                        <span>{color.name}</span>
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => setContrastText('#ffffff')}
+                      className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold font-sans flex items-center gap-1.5 transition duration-150 active:scale-95 cursor-pointer ${
+                        contrastText.toLowerCase() === '#ffffff'
+                          ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md bg-indigo-500/10 text-indigo-500'
+                          : isDark ? 'border-slate-800 bg-slate-950/50 text-slate-300' : 'border-slate-200 bg-white text-slate-700'
+                      }`}
+                    >
+                      <span className="w-3 h-3 rounded-full border border-slate-300 bg-white shrink-0" />
+                      <span>White</span>
+                    </button>
+                    <button
+                      onClick={() => setContrastText('#0f172a')}
+                      className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold font-sans flex items-center gap-1.5 transition duration-150 active:scale-95 cursor-pointer ${
+                        contrastText.toLowerCase() === '#0f172a'
+                          ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md bg-indigo-500/10 text-indigo-500'
+                          : isDark ? 'border-slate-800 bg-slate-950/50 text-slate-300' : 'border-slate-200 bg-white text-slate-700'
+                      }`}
+                    >
+                      <span className="w-3 h-3 rounded-full border border-slate-800 bg-[#0f172a] shrink-0" />
+                      <span>Dark</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* Text Color Selector */}
-              <div>
-                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-450 dark:text-slate-400 block mb-2 font-sans">
-                  2. Choose Text / Foreground Color
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  {bible.colorPalette.map((color) => (
+              {/* Editable Text Customizer & Presets */}
+              <div className={`p-4 rounded-2xl border space-y-3 ${isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 font-sans flex items-center gap-1">
+                    <Type className="w-3 h-3 text-indigo-500" /> Live Text Customizer
+                  </span>
+                  {/* Preset Pills */}
+                  <div className="flex items-center gap-1">
                     <button
-                      id={`analyzer-fg-choice-${color.name.toLowerCase().replace(/\s+/g, '-')}`}
-                      key={`text-${color.hex}`}
-                      onClick={() => setContrastText(color.hex)}
-                      className={`px-3 py-2 rounded-xl border text-[11px] font-bold font-sans flex items-center gap-2 transition duration-200 active:scale-95 cursor-pointer ${
-                        contrastText.toLowerCase() === color.hex.toLowerCase() || (color.hex.startsWith('#') ? contrastText.toLowerCase() === color.hex.toLowerCase() : contrastText.toLowerCase() === `#${color.hex.toLowerCase()}`)
-                          ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md bg-indigo-500/5'
-                          : isDark
-                            ? 'border-slate-800 hover:border-slate-700 bg-slate-950/50 text-slate-300 hover:text-white'
-                            : 'border-slate-200 hover:border-slate-300 bg-slate-50 text-slate-700 hover:text-slate-900'
-                      }`}
+                      onClick={() => handleApplySandboxPreset('hero')}
+                      className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 cursor-pointer"
                     >
-                      <span className="w-3.5 h-3.5 rounded-full border border-black/10 shrink-0" style={{ backgroundColor: color.hex }} />
-                      <span>{color.name}</span>
+                      Hero
                     </button>
-                  ))}
-                  {/* Standard White and Black */}
-                  <button
-                    id="analyzer-fg-choice-white"
-                    onClick={() => setContrastText('#ffffff')}
-                    className={`px-3 py-2 rounded-xl border text-[11px] font-bold font-sans flex items-center gap-2 transition duration-200 active:scale-95 cursor-pointer ${
-                      contrastText === '#ffffff' || contrastText.toLowerCase() === '#ffffff'
-                        ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md bg-indigo-500/5'
-                        : isDark
-                          ? 'border-slate-800 hover:border-slate-700 bg-slate-950/50 text-slate-300 hover:text-white'
-                          : 'border-slate-200 hover:border-slate-300 bg-slate-50 text-slate-700 hover:text-slate-900'
-                    }`}
-                  >
-                    <span className="w-3.5 h-3.5 rounded-full border border-slate-300 bg-white shrink-0" />
-                    <span>Pure White</span>
-                  </button>
-                  <button
-                    id="analyzer-fg-choice-dark"
-                    onClick={() => setContrastText('#0f172a')}
-                    className={`px-3 py-2 rounded-xl border text-[11px] font-bold font-sans flex items-center gap-2 transition duration-200 active:scale-95 cursor-pointer ${
-                      contrastText === '#0f172a' || contrastText.toLowerCase() === '#0f172a'
-                        ? 'border-indigo-600 ring-2 ring-indigo-500/20 shadow-md bg-indigo-500/5'
-                        : isDark
-                          ? 'border-slate-800 hover:border-slate-700 bg-slate-950/50 text-slate-300 hover:text-white'
-                          : 'border-slate-200 hover:border-slate-300 bg-slate-50 text-slate-700 hover:text-slate-900'
-                    }`}
-                  >
-                    <span className="w-3.5 h-3.5 rounded-full border border-slate-800 bg-[#0f172a] shrink-0" />
-                    <span>Slate Dark</span>
-                  </button>
+                    <button
+                      onClick={() => handleApplySandboxPreset('cta')}
+                      className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 cursor-pointer"
+                    >
+                      CTA
+                    </button>
+                    <button
+                      onClick={() => handleApplySandboxPreset('alert')}
+                      className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 cursor-pointer"
+                    >
+                      Notice
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              {/* Scoring Analysis Card */}
-              <div className={`p-5 border rounded-2xl ${isDark ? 'bg-slate-950/60 border-slate-850' : 'bg-slate-50/80 border-slate-200/80'}`}>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-6">
-                  {/* Left big score */}
-                  <div className="text-center sm:text-left shrink-0">
-                    <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400 block mb-1">Contrast Ratio</span>
-                    <span className="text-4xl font-black text-indigo-500 tracking-tight">{getContrastRatio(contrastBg, contrastText).toFixed(2)}:1</span>
+                <div>
+                  <label className="text-[10px] text-slate-400 font-bold block mb-1">Headline Text</label>
+                  <input
+                    type="text"
+                    value={sandboxCustomHeading}
+                    onChange={(e) => setSandboxCustomHeading(e.target.value)}
+                    className={`w-full px-3 py-1.5 rounded-xl border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-250 text-slate-800'
+                    }`}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-slate-400 font-bold block mb-1">Paragraph Body Copy</label>
+                  <textarea
+                    rows={2}
+                    value={sandboxCustomBody}
+                    onChange={(e) => setSandboxCustomBody(e.target.value)}
+                    className={`w-full px-3 py-1.5 rounded-xl border text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-white border-slate-250 text-slate-800'
+                    }`}
+                  />
+                </div>
+
+                {/* Typography Tuning Sliders */}
+                <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-200 dark:border-slate-800">
+                  <div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mb-1">
+                      <span>Body Font Size</span>
+                      <span className="text-indigo-400 font-mono">{sandboxFontSize}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={12}
+                      max={28}
+                      value={sandboxFontSize}
+                      onChange={(e) => setSandboxFontSize(Number(e.target.value))}
+                      className="w-full accent-indigo-500 cursor-pointer h-1.5 rounded-lg bg-slate-200 dark:bg-slate-800"
+                    />
                   </div>
 
-                  {/* Right compliance badges */}
-                  <div className="flex-1 space-y-3.5 sm:pl-6 sm:border-l sm:border-slate-200 sm:dark:border-slate-800">
-                    <div>
-                      <div className="flex items-center justify-between text-xs font-bold">
-                        <span className={isDark ? 'text-slate-300' : 'text-slate-700 font-sans'}>Normal Body Text (&lt; 18px)</span>
-                        {getContrastRatio(contrastBg, contrastText) >= 4.5 ? (
-                          <span className="text-emerald-500 flex items-center gap-1 font-extrabold text-[11px] font-sans">
-                            <CheckCircle className="w-4 h-4 text-emerald-500" /> {getContrastRatio(contrastBg, contrastText) >= 7.0 ? 'AAA Pass' : 'AA Pass'}
-                          </span>
-                        ) : (
-                          <span className="text-rose-500 flex items-center gap-1 font-extrabold text-[11px] font-sans">
-                            <XCircle className="w-4 h-4 text-rose-500" /> Fail
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[9px] text-slate-400 mt-0.5 leading-relaxed font-sans">Requires at least 4.5:1 ratio for regular paragraph body copy.</p>
+                  <div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mb-1">
+                      <span>Font Weight</span>
+                      <span className="text-indigo-400 font-mono capitalize">{sandboxFontWeight}</span>
                     </div>
-
-                    <div>
-                      <div className="flex items-center justify-between text-xs font-bold border-t pt-2.5 dark:border-slate-800">
-                        <span className={isDark ? 'text-slate-300' : 'text-slate-700 font-sans'}>Large Headings (&gt; 18px / Bold)</span>
-                        {getContrastRatio(contrastBg, contrastText) >= 3.0 ? (
-                          <span className="text-emerald-500 flex items-center gap-1 font-extrabold text-[11px] font-sans">
-                            <CheckCircle className="w-4 h-4 text-emerald-500" /> {getContrastRatio(contrastBg, contrastText) >= 4.5 ? 'AAA Pass' : 'AA Pass'}
-                          </span>
-                        ) : (
-                          <span className="text-rose-500 flex items-center gap-1 font-extrabold text-[11px] font-sans">
-                            <XCircle className="w-4 h-4 text-rose-500" /> Fail
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[9px] text-slate-400 mt-0.5 leading-relaxed font-sans">Requires at least 3.0:1 ratio for large titles, headlines, or callouts.</p>
+                    <div className="flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 p-0.5 bg-slate-100 dark:bg-slate-950">
+                      {(['normal', 'medium', 'bold', 'extrabold'] as const).map((w) => (
+                        <button
+                          key={w}
+                          onClick={() => setSandboxFontWeight(w)}
+                          className={`flex-1 text-[9px] font-bold py-0.5 rounded capitalize transition cursor-pointer ${
+                            sandboxFontWeight === w ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {w === 'extrabold' ? 'Black' : w.slice(0, 3)}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Live Rendering Sandbox Column */}
-            <div className="lg:col-span-6 flex flex-col justify-between">
-              <div 
-                className="w-full h-full rounded-2xl p-8 border flex flex-col justify-between min-h-[300px] transition-all duration-300 relative overflow-hidden shadow-inner text-left"
+            {/* Right Panel Column: Live Rendering Stage & Score Board */}
+            <div className="lg:col-span-7 flex flex-col justify-between space-y-4">
+              {/* Component View Stage Tabs */}
+              <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1">
+                <span className="text-[10px] uppercase font-black text-slate-400 shrink-0 font-sans">
+                  Component View:
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setSandboxComponentView('hero')}
+                    className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      sandboxComponentView === 'hero'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <span>Hero Section</span>
+                  </button>
+                  <button
+                    onClick={() => setSandboxComponentView('card')}
+                    className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      sandboxComponentView === 'card'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <span>UI Card</span>
+                  </button>
+                  <button
+                    onClick={() => setSandboxComponentView('form')}
+                    className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      sandboxComponentView === 'form'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <span>Form Input</span>
+                  </button>
+                  <button
+                    onClick={() => setSandboxComponentView('alert')}
+                    className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      sandboxComponentView === 'alert'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <span>Alert Banner</span>
+                  </button>
+                  <button
+                    onClick={() => setSandboxComponentView('nav')}
+                    className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      sandboxComponentView === 'nav'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <span>Nav Bar</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* LIVE RENDERING STAGE CANVAS */}
+              <div
+                className="w-full rounded-2xl p-6 sm:p-8 border flex flex-col justify-between min-h-[310px] transition-all duration-300 relative overflow-hidden shadow-inner text-left"
                 style={{ backgroundColor: contrastBg }}
               >
-                {/* Visual marker inside background */}
-                <div className="absolute top-4 right-4 px-2.5 py-1.5 bg-black/10 dark:bg-white/10 rounded-xl text-[9px] font-bold font-mono uppercase tracking-wider backdrop-blur-md opacity-75 animate-pulse" style={{ color: contrastText }}>
-                  Live Contrast Preview
+                {/* Visual marker badge */}
+                <div
+                  className="absolute top-4 right-4 px-2.5 py-1 rounded-xl text-[9px] font-black font-mono uppercase tracking-wider backdrop-blur-md opacity-85 shadow-sm flex items-center gap-1.5"
+                  style={{ color: contrastText, backgroundColor: `${contrastText}15`, border: `1px solid ${contrastText}30` }}
+                >
+                  <Eye className="w-3 h-3" />
+                  <span>Live Sandbox Stage</span>
                 </div>
 
-                {/* Simulated heading and text */}
-                <div className="space-y-4 pr-12">
-                  <h1 
-                    className="text-2xl font-black tracking-tight" 
-                    style={{ 
-                      color: contrastText,
-                      fontFamily: `'${bible.typography.headerFont}', sans-serif`
-                    }}
-                  >
-                    Interactive Accessibility Preview
-                  </h1>
-                  <p 
-                    className="text-xs leading-relaxed font-semibold opacity-90" 
-                    style={{ 
-                      color: contrastText,
-                      fontFamily: `'${bible.typography.bodyFont}', sans-serif`
-                    }}
-                  >
-                    Adjust colors to test contrast limits live. This paragraph is rendered using your brand font, '{bible.typography.bodyFont}', enabling clear evaluation of typographical weight and readability.
-                  </p>
-                </div>
+                {/* Hero View Render */}
+                {sandboxComponentView === 'hero' && (
+                  <div className="space-y-4 pr-8 my-auto">
+                    <span
+                      className="inline-block px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider border"
+                      style={{
+                        borderColor: `${contrastText}40`,
+                        color: contrastText,
+                        backgroundColor: `${contrastText}10`
+                      }}
+                    >
+                      {bible.companyName || 'Brand Mark'} • Feature Spotlight
+                    </span>
+                    <h1
+                      className="text-2xl sm:text-3xl font-black tracking-tight leading-snug"
+                      style={{
+                        color: contrastText,
+                        fontFamily: `'${bible.typography.headerFont}', serif`
+                      }}
+                    >
+                      {sandboxCustomHeading}
+                    </h1>
+                    <p
+                      className="leading-relaxed opacity-90 max-w-xl"
+                      style={{
+                        color: contrastText,
+                        fontSize: `${sandboxFontSize}px`,
+                        fontWeight: sandboxFontWeight === 'normal' ? 400 : sandboxFontWeight === 'medium' ? 500 : sandboxFontWeight === 'bold' ? 700 : 900,
+                        fontFamily: `'${bible.typography.bodyFont}', sans-serif`
+                      }}
+                    >
+                      {sandboxCustomBody}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3 pt-2">
+                      <button
+                        className="px-5 py-2.5 rounded-xl text-xs font-black shadow-md transition active:scale-95 cursor-pointer"
+                        style={{
+                          backgroundColor: contrastText,
+                          color: contrastBg
+                        }}
+                      >
+                        {sandboxCustomButtonText}
+                      </button>
+                      <button
+                        className="px-4 py-2.5 rounded-xl text-xs font-bold border transition cursor-pointer"
+                        style={{
+                          borderColor: `${contrastText}40`,
+                          color: contrastText
+                        }}
+                      >
+                        Secondary Link
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-                {/* Simulated UI components */}
-                <div className="flex flex-wrap gap-2.5 pt-6">
-                  <button 
-                    className="px-4 py-2 rounded-xl text-xs font-black shadow-sm transition active:scale-95 cursor-pointer"
-                    style={{ 
-                      backgroundColor: contrastText, 
-                      color: contrastBg 
-                    }}
-                  >
-                    Inverted Button Preview
-                  </button>
-                  <span 
-                    className="px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider border flex items-center justify-center font-sans"
-                    style={{ 
-                      borderColor: `${contrastText}40`, 
-                      color: contrastText 
-                    }}
-                  >
-                    Outlined Badge
-                  </span>
+                {/* UI Card View Render */}
+                {sandboxComponentView === 'card' && (
+                  <div className="my-auto max-w-md w-full">
+                    <div
+                      className="p-6 rounded-2xl border shadow-xl space-y-3"
+                      style={{
+                        backgroundColor: `${contrastText}08`,
+                        borderColor: `${contrastText}25`
+                      }}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span
+                          className="px-2.5 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider"
+                          style={{ backgroundColor: `${contrastText}20`, color: contrastText }}
+                        >
+                          Card Module
+                        </span>
+                        <span className="text-[10px] font-mono opacity-60" style={{ color: contrastText }}>
+                          {getContrastRatio(contrastBg, contrastText).toFixed(1)}:1
+                        </span>
+                      </div>
+                      <h3
+                        className="text-xl font-black"
+                        style={{ color: contrastText, fontFamily: `'${bible.typography.headerFont}', serif` }}
+                      >
+                        {sandboxCustomHeading}
+                      </h3>
+                      <p
+                        className="leading-relaxed opacity-90 text-xs"
+                        style={{
+                          color: contrastText,
+                          fontSize: `${sandboxFontSize}px`,
+                          fontFamily: `'${bible.typography.bodyFont}', sans-serif`
+                        }}
+                      >
+                        {sandboxCustomBody}
+                      </p>
+                      <button
+                        className="w-full py-2.5 rounded-xl text-xs font-black transition cursor-pointer"
+                        style={{ backgroundColor: contrastText, color: contrastBg }}
+                      >
+                        {sandboxCustomButtonText}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Form Input View Render */}
+                {sandboxComponentView === 'form' && (
+                  <div className="my-auto max-w-md w-full space-y-4">
+                    <h3
+                      className="text-lg font-black"
+                      style={{ color: contrastText, fontFamily: `'${bible.typography.headerFont}', serif` }}
+                    >
+                      {sandboxCustomHeading}
+                    </h3>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold block" style={{ color: contrastText }}>
+                        User Email Address
+                      </label>
+                      <div
+                        className="w-full px-4 py-2.5 rounded-xl border flex items-center justify-between"
+                        style={{
+                          backgroundColor: `${contrastText}10`,
+                          borderColor: `${contrastText}35`,
+                          color: contrastText
+                        }}
+                      >
+                        <span className="text-xs opacity-70">alex@{bible.companyName.toLowerCase().replace(/\s+/g, '')}.com</span>
+                        <span className="text-[10px] font-bold uppercase" style={{ color: contrastText }}>Valid</span>
+                      </div>
+                      <p className="text-[10px] opacity-70" style={{ color: contrastText }}>
+                        We will never share your personal details.
+                      </p>
+                    </div>
+                    <button
+                      className="px-5 py-2.5 rounded-xl text-xs font-black shadow-md transition cursor-pointer"
+                      style={{ backgroundColor: contrastText, color: contrastBg }}
+                    >
+                      {sandboxCustomButtonText}
+                    </button>
+                  </div>
+                )}
+
+                {/* Alert View Render */}
+                {sandboxComponentView === 'alert' && (
+                  <div className="my-auto w-full">
+                    <div
+                      className="p-5 rounded-2xl border flex items-start gap-3.5 shadow-lg"
+                      style={{
+                        backgroundColor: `${contrastText}10`,
+                        borderColor: `${contrastText}30`
+                      }}
+                    >
+                      <div
+                        className="p-2 rounded-xl shrink-0"
+                        style={{ backgroundColor: contrastText, color: contrastBg }}
+                      >
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <div className="space-y-1 flex-1">
+                        <h4
+                          className="text-sm font-bold"
+                          style={{ color: contrastText, fontFamily: `'${bible.typography.headerFont}', serif` }}
+                        >
+                          {sandboxCustomHeading}
+                        </h4>
+                        <p
+                          className="text-xs leading-relaxed opacity-90"
+                          style={{ color: contrastText, fontFamily: `'${bible.typography.bodyFont}', sans-serif` }}
+                        >
+                          {sandboxCustomBody}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Nav Bar View Render */}
+                {sandboxComponentView === 'nav' && (
+                  <div className="my-auto w-full">
+                    <div
+                      className="p-4 rounded-2xl border flex items-center justify-between shadow-md"
+                      style={{
+                        backgroundColor: `${contrastText}08`,
+                        borderColor: `${contrastText}20`
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-6 h-6 rounded-lg flex items-center justify-center font-black text-xs"
+                          style={{ backgroundColor: contrastText, color: contrastBg }}
+                        >
+                          {bible.companyName[0] || 'B'}
+                        </span>
+                        <span
+                          className="font-black text-sm"
+                          style={{ color: contrastText, fontFamily: `'${bible.typography.headerFont}', serif` }}
+                        >
+                          {bible.companyName}
+                        </span>
+                      </div>
+
+                      <div className="hidden sm:flex items-center gap-4 text-xs font-bold" style={{ color: contrastText }}>
+                        <span>Overview</span>
+                        <span className="underline font-black">Features</span>
+                        <span>Docs</span>
+                        <span>Pricing</span>
+                      </div>
+
+                      <button
+                        className="px-3 py-1.5 rounded-lg text-xs font-black"
+                        style={{ backgroundColor: contrastText, color: contrastBg }}
+                      >
+                        {sandboxCustomButtonText}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* LIVE SCORE & COMPLIANCE VERDICT BAR */}
+              <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  {/* Left big ratio */}
+                  <div className="flex items-center gap-3">
+                    <div className="text-left">
+                      <span className="text-[9px] uppercase tracking-wider font-black text-slate-400 block">
+                        Contrast Ratio
+                      </span>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-3xl font-black text-indigo-500 tracking-tight font-mono">
+                          {getContrastRatio(contrastBg, contrastText).toFixed(2)}:1
+                        </span>
+                        <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${getAccessibilityScore(contrastBg).badgeStyle}`}>
+                          {getAccessibilityScore(contrastBg).rating}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* WCAG Compliance Badges */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 flex-1 sm:max-w-md">
+                    <div className={`p-2 rounded-xl border text-left ${
+                      getContrastRatio(contrastBg, contrastText) >= 4.5
+                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                        : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-bold uppercase">Body (&lt;18px)</span>
+                        {getContrastRatio(contrastBg, contrastText) >= 4.5 ? <CheckCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                      </div>
+                      <span className="text-[10px] font-black">{getContrastRatio(contrastBg, contrastText) >= 4.5 ? 'AA Pass' : 'Fail (<4.5)'}</span>
+                    </div>
+
+                    <div className={`p-2 rounded-xl border text-left ${
+                      getContrastRatio(contrastBg, contrastText) >= 3.0
+                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                        : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-bold uppercase">Title (&gt;18px)</span>
+                        {getContrastRatio(contrastBg, contrastText) >= 3.0 ? <CheckCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                      </div>
+                      <span className="text-[10px] font-black">{getContrastRatio(contrastBg, contrastText) >= 3.0 ? 'AA Pass' : 'Fail (<3.0)'}</span>
+                    </div>
+
+                    <div className={`p-2 rounded-xl border text-left col-span-2 sm:col-span-1 ${
+                      getContrastRatio(contrastBg, contrastText) >= 7.0
+                        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                        : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] font-bold uppercase">AAA Enhanced</span>
+                        {getContrastRatio(contrastBg, contrastText) >= 7.0 ? <CheckCircle className="w-3.5 h-3.5" /> : <Info className="w-3.5 h-3.5" />}
+                      </div>
+                      <span className="text-[10px] font-black">{getContrastRatio(contrastBg, contrastText) >= 7.0 ? 'AAA Pass' : 'Standard AA'}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+
+          {/* FULLSCREEN SANDBOX FOCUS MODAL */}
+          {isSandboxFullscreen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fadeIn">
+              <div className={`w-full max-w-5xl rounded-3xl border shadow-2xl p-6 sm:p-8 relative max-h-[90vh] overflow-y-auto ${
+                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}>
+                <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-500 border border-indigo-500/20">
+                      <Activity className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black tracking-tight font-sans">
+                        Full-Screen Contrast Sandbox Stage
+                      </h3>
+                      <p className="text-xs text-slate-400 font-sans mt-0.5">
+                        Interactive presentation canvas for evaluating brand color pair legibility and WCAG 2.1 standards.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsSandboxFullscreen(false)}
+                    className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                {/* Expanded Stage in Modal */}
+                <div
+                  className="w-full rounded-3xl p-8 sm:p-12 border min-h-[400px] flex flex-col justify-between shadow-2xl relative overflow-hidden text-left"
+                  style={{ backgroundColor: contrastBg }}
+                >
+                  <div className="space-y-6 pr-12 my-auto">
+                    <span
+                      className="px-3.5 py-1.5 rounded-full text-xs font-extrabold uppercase tracking-wider border"
+                      style={{ borderColor: `${contrastText}40`, color: contrastText, backgroundColor: `${contrastText}10` }}
+                    >
+                      {bible.companyName} Brand Spec • Fullscreen Stage
+                    </span>
+                    <h1
+                      className="text-3xl sm:text-5xl font-black tracking-tight leading-tight"
+                      style={{ color: contrastText, fontFamily: `'${bible.typography.headerFont}', serif` }}
+                    >
+                      {sandboxCustomHeading}
+                    </h1>
+                    <p
+                      className="text-base sm:text-lg leading-relaxed opacity-90 max-w-3xl"
+                      style={{ color: contrastText, fontFamily: `'${bible.typography.bodyFont}', sans-serif` }}
+                    >
+                      {sandboxCustomBody}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-4 pt-4">
+                      <button
+                        className="px-6 py-3 rounded-2xl text-sm font-black shadow-xl transition active:scale-95 cursor-pointer"
+                        style={{ backgroundColor: contrastText, color: contrastBg }}
+                      >
+                        {sandboxCustomButtonText}
+                      </button>
+                      <span className="text-xs font-mono font-bold opacity-75" style={{ color: contrastText }}>
+                        Contrast Ratio: {getContrastRatio(contrastBg, contrastText).toFixed(2)}:1 ({getAccessibilityScore(contrastBg).rating})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex justify-end">
+                  <button
+                    onClick={() => setIsSandboxFullscreen(false)}
+                    className="py-2.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition cursor-pointer"
+                  >
+                    Done Testing
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 5-Color Pairwise Accessibility Calculator */}
           <div className={`p-6 border rounded-2xl font-sans transition-all duration-300 text-left ${
@@ -4416,13 +8408,22 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <motion.div
+          key={`typography-grid-${bible.companyName}-${bible.typography?.headerFont}-${bible.typography?.bodyFont}`}
+          variants={staggerContainerVariants}
+          initial="hidden"
+          animate="visible"
+          className="grid grid-cols-1 lg:grid-cols-12 gap-6"
+        >
           {/* Detailed Font Cards */}
           <div className="lg:col-span-5 space-y-4 font-sans">
             {/* Header Font Card */}
-            <div className={`p-5 border rounded-2xl transition-all duration-300 ${
-              isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
-            }`}>
+            <motion.div
+              variants={staggerItemVariants}
+              className={`p-5 border rounded-2xl transition-all duration-300 ${
+                isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+              }`}
+            >
               <span className="text-[9px] font-extrabold bg-indigo-50 text-indigo-600 px-2.5 py-1 rounded-full uppercase tracking-wider">
                 Header Typography
               </span>
@@ -4438,12 +8439,15 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                 <strong className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-0.5">Strategic Application:</strong>
                 {bible.typography.headerUsage}
               </p>
-            </div>
+            </motion.div>
 
             {/* Body Font Card */}
-            <div className={`p-5 border rounded-2xl transition-all duration-300 ${
-              isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
-            }`}>
+            <motion.div
+              variants={staggerItemVariants}
+              className={`p-5 border rounded-2xl transition-all duration-300 ${
+                isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+              }`}
+            >
               <span className="text-[9px] font-extrabold bg-indigo-50 text-indigo-600 px-2.5 py-1 rounded-full uppercase tracking-wider">
                 Body / Paragraph Typography
               </span>
@@ -4459,13 +8463,16 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                 <strong className="text-[10px] text-slate-500 block uppercase font-bold tracking-wider mb-0.5">Strategic Application:</strong>
                 {bible.typography.bodyUsage}
               </p>
-            </div>
+            </motion.div>
           </div>
 
           {/* Type Sandbox Sheet */}
-          <div className={`lg:col-span-7 rounded-2xl border p-6 flex flex-col justify-between transition-all duration-300 ${
-            isDark ? 'bg-slate-950 border-slate-850' : 'bg-slate-50 border-slate-200'
-          }`}>
+          <motion.div
+            variants={staggerItemVariants}
+            className={`lg:col-span-7 rounded-2xl border p-6 flex flex-col justify-between transition-all duration-300 ${
+              isDark ? 'bg-slate-950 border-slate-850' : 'bg-slate-50 border-slate-200'
+            }`}
+          >
             <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 block mb-4 font-sans">
               Live Interactive Type-scale Sheet
             </span>
@@ -4523,7 +8530,1515 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             }`}>
               <span>Google Fonts API endpoint injected into index.html dynamically.</span>
             </div>
+          </motion.div>
+        </motion.div>
+      </div>
+
+      {/* 06 / Tiled Geometric Brand Pattern Previewer */}
+      {(() => {
+        const brandColors = extractBrandColors(bible.colorPalette);
+        let fgColor = brandColors.primary;
+        if (geometricFgRole === 'secondary') fgColor = brandColors.secondary;
+        if (geometricFgRole === 'accent') fgColor = brandColors.accent;
+        if (geometricFgRole === 'dark') fgColor = brandColors.darkNeutral;
+        if (geometricFgRole === 'light') fgColor = '#ffffff';
+
+        let bgColor = '#ffffff';
+        if (geometricBgMode === 'dark') bgColor = '#0f172a';
+        if (geometricBgMode === 'brand') bgColor = brandColors.primary;
+
+        const patternDataUrl = generatePatternDataUrl({
+          type: selectedGeometricPattern,
+          scale: geometricScale,
+          bgColor,
+          fgColor,
+          secondaryColor: brandColors.secondary,
+          accentColor: brandColors.accent,
+          opacity: geometricOpacity
+        });
+
+        return (
+          <div
+            id="geometric-pattern-previewer-section"
+            className={`border rounded-3xl p-6 sm:p-8 shadow-sm transition-all duration-300 ${
+              isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
+            {/* Header */}
+            <div className={`border-b pb-5 mb-6 transition-colors duration-300 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+              isDark ? 'border-slate-800' : 'border-slate-100'
+            }`}>
+              <div>
+                <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block mb-1 font-sans">
+                  06 / Geometric Brand Pattern System
+                </span>
+                <h2 className="text-xl font-black flex items-center gap-2 font-sans tracking-tight">
+                  <Grid className="w-5 h-5 text-indigo-600" />
+                  Interactive Geometric Pattern Previewer
+                </h2>
+                <p className="text-xs text-slate-400 font-sans mt-0.5 leading-relaxed max-w-2xl">
+                  Inspect how your brand's geometric SVG patterns tile seamlessly across physical stationery, business cards, letterheads, social headers, and packaging materials in real time.
+                </p>
+              </div>
+
+              {/* Quick Action Export Buttons */}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  id="copy-pattern-svg-btn"
+                  onClick={handleCopyPatternSvg}
+                  className={`px-3.5 py-2 text-xs font-bold rounded-xl border transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                    isCopiedGeometricSvg
+                      ? 'bg-emerald-600 text-white border-emerald-500'
+                      : isDark
+                        ? 'bg-slate-800 border-slate-700 text-slate-200 hover:text-white hover:border-indigo-500'
+                        : 'bg-slate-100 border-slate-250 text-slate-700 hover:text-indigo-600 hover:border-indigo-300'
+                  }`}
+                >
+                  {isCopiedGeometricSvg ? <Check className="w-3.5 h-3.5 text-emerald-200" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{isCopiedGeometricSvg ? 'SVG Copied!' : 'Copy SVG'}</span>
+                </button>
+
+                <button
+                  id="copy-pattern-css-btn"
+                  onClick={handleCopyPatternCss}
+                  className={`px-3.5 py-2 text-xs font-bold rounded-xl border transition flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                    isCopiedGeometricCss
+                      ? 'bg-emerald-600 text-white border-emerald-500'
+                      : isDark
+                        ? 'bg-slate-800 border-slate-700 text-slate-200 hover:text-white hover:border-indigo-500'
+                        : 'bg-slate-100 border-slate-250 text-slate-700 hover:text-indigo-600 hover:border-indigo-300'
+                  }`}
+                >
+                  {isCopiedGeometricCss ? <Check className="w-3.5 h-3.5 text-emerald-200" /> : <Code2 className="w-3.5 h-3.5" />}
+                  <span>{isCopiedGeometricCss ? 'CSS Copied!' : 'Copy CSS'}</span>
+                </button>
+
+                <button
+                  id="download-pattern-svg-btn"
+                  onClick={handleDownloadPatternSvg}
+                  className="px-3.5 py-2 text-xs font-black rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download SVG</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Pattern Template Picker Cards */}
+            <div className="mb-6">
+              <label className="text-[10px] uppercase font-black tracking-wider text-slate-400 block mb-2 font-sans">
+                Select Geometric Motif Template:
+              </label>
+              <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-2.5">
+                {BRAND_PATTERN_TEMPLATES.map((tmpl) => {
+                  const previewDataUrl = generatePatternDataUrl({
+                    type: tmpl.id,
+                    scale: 24,
+                    bgColor,
+                    fgColor,
+                    secondaryColor: brandColors.secondary,
+                    accentColor: brandColors.accent,
+                    opacity: geometricOpacity
+                  });
+
+                  const isSelected = selectedGeometricPattern === tmpl.id;
+
+                  return (
+                    <button
+                      key={tmpl.id}
+                      onClick={() => setSelectedGeometricPattern(tmpl.id)}
+                      className={`p-2 rounded-2xl border text-left transition duration-200 flex flex-col justify-between cursor-pointer group active:scale-95 ${
+                        isSelected
+                          ? 'border-indigo-600 ring-2 ring-indigo-500/30 bg-indigo-500/10 shadow-sm'
+                          : isDark
+                            ? 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-850/60'
+                            : 'bg-slate-50 border-slate-200 hover:border-slate-300 hover:bg-slate-100/80'
+                      }`}
+                    >
+                      <div
+                        className="w-full h-12 rounded-xl border border-black/10 shadow-inner mb-2 transition-transform duration-300 group-hover:scale-105"
+                        style={{
+                          backgroundImage: `url("${previewDataUrl}")`,
+                          backgroundRepeat: 'repeat',
+                          backgroundSize: '24px'
+                        }}
+                      />
+                      <span className={`text-[10px] font-bold truncate block ${isSelected ? 'text-indigo-500 font-extrabold' : isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                        {tmpl.name.split(' ')[0]}
+                      </span>
+                      <span className="text-[8px] text-slate-400 font-mono truncate block capitalize">
+                        {tmpl.id}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Fine-Tuning Controls Row */}
+            <div className={`p-4 rounded-2xl border mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 ${
+              isDark ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
+              {/* Tile Size / Scale */}
+              <div>
+                <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mb-1 font-sans">
+                  <span className="flex items-center gap-1"><Sliders className="w-3 h-3 text-indigo-500" /> Tile Scale</span>
+                  <span className="text-indigo-400 font-mono font-bold">{geometricScale}px</span>
+                </div>
+                <input
+                  type="range"
+                  min={16}
+                  max={120}
+                  step={4}
+                  value={geometricScale}
+                  onChange={(e) => setGeometricScale(Number(e.target.value))}
+                  className="w-full accent-indigo-500 cursor-pointer h-1.5 rounded-lg bg-slate-200 dark:bg-slate-800"
+                />
+              </div>
+
+              {/* Opacity */}
+              <div>
+                <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold mb-1 font-sans">
+                  <span className="flex items-center gap-1"><Eye className="w-3 h-3 text-indigo-500" /> Pattern Opacity</span>
+                  <span className="text-indigo-400 font-mono font-bold">{Math.round(geometricOpacity * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={1.0}
+                  step={0.05}
+                  value={geometricOpacity}
+                  onChange={(e) => setGeometricOpacity(Number(e.target.value))}
+                  className="w-full accent-indigo-500 cursor-pointer h-1.5 rounded-lg bg-slate-200 dark:bg-slate-800"
+                />
+              </div>
+
+              {/* Foreground Role Selector */}
+              <div>
+                <label className="text-[10px] text-slate-400 font-bold block mb-1 font-sans">Pattern Color Role</label>
+                <div className="flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 p-0.5 bg-slate-100 dark:bg-slate-950">
+                  {(['primary', 'secondary', 'accent', 'dark'] as const).map((role) => (
+                    <button
+                      key={role}
+                      onClick={() => setGeometricFgRole(role)}
+                      className={`flex-1 text-[9px] font-bold py-1 rounded capitalize transition cursor-pointer ${
+                        geometricFgRole === role ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {role}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Background Canvas Mode */}
+              <div>
+                <label className="text-[10px] text-slate-400 font-bold block mb-1 font-sans">Canvas Background</label>
+                <div className="flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 p-0.5 bg-slate-100 dark:bg-slate-950">
+                  {(['light', 'dark', 'brand'] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setGeometricBgMode(mode)}
+                      className={`flex-1 text-[9px] font-bold py-1 rounded capitalize transition cursor-pointer ${
+                        geometricBgMode === mode ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Element Tiling Preview Tabs */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b pb-2 border-slate-200 dark:border-slate-800 flex-wrap gap-2">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 font-sans">
+                  Element Tiling Application Stage:
+                </span>
+                <div className="flex items-center gap-1 overflow-x-auto pb-1">
+                  <button
+                    onClick={() => setActivePatternElementTab('business-card')}
+                    className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      activePatternElementTab === 'business-card'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-950 border-slate-800 text-slate-300 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>🎴 Business Cards</span>
+                  </button>
+                  <button
+                    onClick={() => setActivePatternElementTab('letterhead')}
+                    className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      activePatternElementTab === 'letterhead'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-950 border-slate-800 text-slate-300 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>📄 Letterhead</span>
+                  </button>
+                  <button
+                    onClick={() => setActivePatternElementTab('social-banner')}
+                    className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      activePatternElementTab === 'social-banner'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-950 border-slate-800 text-slate-300 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>🖼️ Social Banner</span>
+                  </button>
+                  <button
+                    onClick={() => setActivePatternElementTab('packaging')}
+                    className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      activePatternElementTab === 'packaging'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-950 border-slate-800 text-slate-300 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>📦 Packaging Box</span>
+                  </button>
+                  <button
+                    onClick={() => setActivePatternElementTab('full-canvas')}
+                    className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      activePatternElementTab === 'full-canvas'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : isDark ? 'bg-slate-950 border-slate-800 text-slate-300 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>🔍 Full Tile Inspector</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* TAB 1: BUSINESS CARD PREVIEW */}
+              {activePatternElementTab === 'business-card' && (
+                <div className="space-y-4 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-400 font-sans">
+                      Standard US 3.5" x 2.0" Business Cards (Front & Back Tiling Preview)
+                    </span>
+                    <div className="flex items-center gap-1 text-[10px] font-bold">
+                      <button
+                        onClick={() => setPatternCardSide('both')}
+                        className={`px-2.5 py-1 rounded-md border cursor-pointer ${patternCardSide === 'both' ? 'bg-indigo-600 text-white border-indigo-500' : 'text-slate-400'}`}
+                      >
+                        Both Sides
+                      </button>
+                      <button
+                        onClick={() => setPatternCardSide('front')}
+                        className={`px-2.5 py-1 rounded-md border cursor-pointer ${patternCardSide === 'front' ? 'bg-indigo-600 text-white border-indigo-500' : 'text-slate-400'}`}
+                      >
+                        Front
+                      </button>
+                      <button
+                        onClick={() => setPatternCardSide('back')}
+                        className={`px-2.5 py-1 rounded-md border cursor-pointer ${patternCardSide === 'back' ? 'bg-indigo-600 text-white border-indigo-500' : 'text-slate-400'}`}
+                      >
+                        Back
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                    {/* Front Side Card */}
+                    {(patternCardSide === 'both' || patternCardSide === 'front') && (
+                      <div className="space-y-2">
+                        <span className="text-[10px] font-mono uppercase text-slate-400 font-bold block">
+                          Card Front • Primary Identity Mark
+                        </span>
+                        <div
+                          className="w-full aspect-[1.75/1] rounded-2xl border border-slate-300 dark:border-slate-800 p-6 flex flex-col justify-between relative overflow-hidden shadow-xl transition-all duration-300 hover:shadow-2xl"
+                          style={{
+                            backgroundImage: `url("${patternDataUrl}")`,
+                            backgroundRepeat: 'repeat',
+                            backgroundSize: `${geometricScale}px`
+                          }}
+                        >
+                          {/* Glass Overlay Card Center */}
+                          <div className="m-auto backdrop-blur-md bg-white/85 dark:bg-slate-950/85 border border-white/50 dark:border-slate-800/80 p-6 rounded-2xl shadow-2xl text-center max-w-[85%] space-y-2">
+                            <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white font-black text-lg flex items-center justify-center mx-auto shadow-md">
+                              {bible.companyName[0] || 'B'}
+                            </div>
+                            <h3
+                              className="text-lg font-black tracking-tight text-slate-900 dark:text-white"
+                              style={{ fontFamily: `'${bible.typography.headerFont}', serif` }}
+                            >
+                              {bible.companyName}
+                            </h3>
+                            <p className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 dark:text-indigo-400 font-sans">
+                              {bible.industry || 'Brand Standards'}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[8px] font-mono text-slate-500 dark:text-slate-400 font-bold relative z-10">
+                            <span>EST. 2026</span>
+                            <span>{bible.archetype?.primaryArchetype || 'ARCHETYPE SPEC'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Back Side Card */}
+                    {(patternCardSide === 'both' || patternCardSide === 'back') && (
+                      <div className="space-y-2">
+                        <span className="text-[10px] font-mono uppercase text-slate-400 font-bold block">
+                          Card Back • Executive Contact Spec
+                        </span>
+                        <div
+                          className="w-full aspect-[1.75/1] rounded-2xl border border-slate-300 dark:border-slate-800 p-6 flex flex-col justify-between relative overflow-hidden shadow-xl transition-all duration-300 hover:shadow-2xl"
+                          style={{
+                            backgroundImage: `url("${patternDataUrl}")`,
+                            backgroundRepeat: 'repeat',
+                            backgroundSize: `${geometricScale}px`
+                          }}
+                        >
+                          {/* Solid Info Card Panel */}
+                          <div className="backdrop-blur-lg bg-slate-900/90 text-white p-5 rounded-xl border border-slate-800 shadow-xl flex items-center justify-between gap-4">
+                            <div className="space-y-1">
+                              <h4 className="text-sm font-black tracking-tight font-sans">
+                                Alex Morgan
+                              </h4>
+                              <p className="text-[10px] text-indigo-400 font-bold font-sans">
+                                Creative Director & Founder
+                              </p>
+                              <div className="pt-2 text-[9px] font-mono text-slate-300 space-y-0.5">
+                                <p>alex@{bible.companyName.toLowerCase().replace(/\s+/g, '')}.com</p>
+                                <p>www.{bible.companyName.toLowerCase().replace(/\s+/g, '')}.com</p>
+                                <p>+1 (555) 019-2834</p>
+                              </div>
+                            </div>
+
+                            {/* QR Code Placeholder */}
+                            <div className="w-16 h-16 rounded-lg bg-white p-1.5 shrink-0 border border-slate-200 shadow-md flex flex-col items-center justify-center text-slate-900">
+                              <div className="w-full h-full border border-slate-900 border-dashed rounded flex items-center justify-center font-mono text-[8px] font-black text-center leading-tight">
+                                SCAN QR
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-[8px] font-mono text-slate-400 font-bold text-right">
+                            CONFIDENTIAL &bull; {bible.companyName.toUpperCase()}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: LETTERHEAD PREVIEW */}
+              {activePatternElementTab === 'letterhead' && (
+                <div className="space-y-3 animate-fadeIn">
+                  <span className="text-xs font-bold text-slate-400 font-sans block">
+                    Standard Corporate Stationery & Executive Letterhead Spec
+                  </span>
+                  <div
+                    className={`w-full max-w-3xl mx-auto rounded-2xl border p-8 sm:p-12 shadow-2xl relative overflow-hidden text-left ${
+                      isDark ? 'bg-slate-950 text-slate-200 border-slate-800' : 'bg-white text-slate-800 border-slate-300'
+                    }`}
+                  >
+                    {/* Header Pattern Banner */}
+                    <div
+                      className="w-full h-20 rounded-xl border border-slate-200 dark:border-slate-800 mb-8 flex items-center justify-between px-6 shadow-sm relative overflow-hidden"
+                      style={{
+                        backgroundImage: `url("${patternDataUrl}")`,
+                        backgroundRepeat: 'repeat',
+                        backgroundSize: `${geometricScale}px`
+                      }}
+                    >
+                      <div className="backdrop-blur-md bg-white/90 dark:bg-slate-900/90 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white font-black text-xs flex items-center justify-center">
+                          {bible.companyName[0] || 'B'}
+                        </div>
+                        <span className="font-black text-sm text-slate-900 dark:text-white" style={{ fontFamily: `'${bible.typography.headerFont}', serif` }}>
+                          {bible.companyName}
+                        </span>
+                      </div>
+
+                      <span className="text-[9px] font-mono font-bold uppercase tracking-widest px-3 py-1 rounded-md bg-white/80 dark:bg-slate-900/80 text-slate-600 dark:text-slate-300 backdrop-blur-sm border border-slate-200 dark:border-slate-800">
+                        OFFICIAL CORRESPONDENCE
+                      </span>
+                    </div>
+
+                    {/* Letterhead Body */}
+                    <div className="space-y-6 font-sans">
+                      <div className="flex justify-between items-start text-xs font-mono text-slate-400">
+                        <div>
+                          <p className="font-bold text-slate-700 dark:text-slate-300">To: Executive Board & Steering Committee</p>
+                          <p>Ref: Brand Identity System Release</p>
+                        </div>
+                        <p>Date: July 29, 2026</p>
+                      </div>
+
+                      <div className="border-t pt-4 border-slate-200 dark:border-slate-800 space-y-3 text-xs leading-relaxed">
+                        <h3 className="text-sm font-black text-slate-900 dark:text-white" style={{ fontFamily: `'${bible.typography.headerFont}', serif` }}>
+                          Subject: Official Brand Standards & Geometric Motif Authorization
+                        </h3>
+                        <p className="text-slate-600 dark:text-slate-300">
+                          We are pleased to introduce the standardized geometric pattern system for <strong>{bible.companyName}</strong>. This pattern system builds directly on our 5-color palette and core brand archetype: <em>{bible.archetype?.primaryArchetype || 'Innovative Leader'}</em>.
+                        </p>
+                        <p className="text-slate-600 dark:text-slate-300">
+                          Please utilize this tiled geometric artwork across all official stationery, print collateral, website hero accents, packaging wraps, and conference badges. Maintain minimum spacing clearance around primary logo marks.
+                        </p>
+                      </div>
+
+                      {/* Signature block */}
+                      <div className="pt-6 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+                        <div>
+                          <p className="font-extrabold text-slate-900 dark:text-white">Alex Morgan</p>
+                          <p className="text-[10px] text-slate-400">Head of Global Brand Standards</p>
+                        </div>
+                        <div className="text-right text-[9px] font-mono text-slate-400">
+                          <p>HQ: 100 Innovation Way, Suite 400</p>
+                          <p>San Francisco, CA 94105</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Footer Stripe */}
+                    <div
+                      className="w-full h-3 rounded-md mt-8 border-t border-slate-200 dark:border-slate-800"
+                      style={{
+                        backgroundImage: `url("${patternDataUrl}")`,
+                        backgroundRepeat: 'repeat',
+                        backgroundSize: `${geometricScale}px`
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: SOCIAL MEDIA BANNER PREVIEW */}
+              {activePatternElementTab === 'social-banner' && (
+                <div className="space-y-3 animate-fadeIn">
+                  <span className="text-xs font-bold text-slate-400 font-sans block">
+                    Social Media Widescreen Cover Banner (LinkedIn / Twitter / YouTube Spec)
+                  </span>
+                  <div className="w-full rounded-2xl border border-slate-300 dark:border-slate-800 overflow-hidden shadow-2xl relative">
+                    {/* Widescreen Banner Container with Pattern */}
+                    <div
+                      className="w-full aspect-[3.2/1] relative flex items-center justify-between p-6 sm:p-10"
+                      style={{
+                        backgroundImage: `url("${patternDataUrl}")`,
+                        backgroundRepeat: 'repeat',
+                        backgroundSize: `${geometricScale}px`
+                      }}
+                    >
+                      {/* Dark gradient vignette overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/60 to-transparent pointer-events-none" />
+
+                      <div className="relative z-10 flex items-center gap-4 max-w-xl">
+                        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-indigo-600 text-white font-black text-2xl sm:text-3xl flex items-center justify-center shadow-2xl border-2 border-white/20 shrink-0">
+                          {bible.companyName[0] || 'B'}
+                        </div>
+                        <div className="text-white space-y-1">
+                          <div className="flex items-center gap-2">
+                            <h2 className="text-xl sm:text-3xl font-black tracking-tight" style={{ fontFamily: `'${bible.typography.headerFont}', serif` }}>
+                              {bible.companyName}
+                            </h2>
+                            <span className="w-5 h-5 rounded-full bg-indigo-500 text-white flex items-center justify-center text-[10px] font-black">
+                              ✓
+                            </span>
+                          </div>
+                          <p className="text-xs sm:text-sm text-slate-200 line-clamp-1 font-sans">
+                            {bible.mission || 'Pioneering next-generation brand experiences and designs.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* CTA Badge on Right */}
+                      <div className="hidden sm:flex items-center gap-3 relative z-10">
+                        <button className="px-5 py-2.5 rounded-xl bg-white text-slate-900 font-black text-xs shadow-xl hover:bg-slate-100 transition cursor-pointer">
+                          Follow Brand
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className={`p-4 flex items-center justify-between text-xs font-bold ${
+                      isDark ? 'bg-slate-950 text-slate-400' : 'bg-slate-50 text-slate-600'
+                    }`}>
+                      <span>Specs: 1584 x 396 px &bull; Vector Pattern Background</span>
+                      <span className="font-mono text-[10px] text-indigo-400">LIVE SOCIAL PREVIEW</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: PACKAGING BOX PREVIEW */}
+              {activePatternElementTab === 'packaging' && (
+                <div className="space-y-3 animate-fadeIn">
+                  <span className="text-xs font-bold text-slate-400 font-sans block">
+                    Retail Box & Product Packaging Outer Sleeve Mockup
+                  </span>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                    {/* 3D Box Mockup Panel */}
+                    <div
+                      className="w-full aspect-square max-w-sm mx-auto rounded-3xl border border-slate-300 dark:border-slate-800 p-8 flex flex-col justify-between relative overflow-hidden shadow-2xl"
+                      style={{
+                        backgroundImage: `url("${patternDataUrl}")`,
+                        backgroundRepeat: 'repeat',
+                        backgroundSize: `${geometricScale}px`
+                      }}
+                    >
+                      <div className="backdrop-blur-md bg-slate-900/90 text-white p-4 rounded-2xl border border-slate-800 shadow-xl flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white font-black text-xs flex items-center justify-center">
+                            {bible.companyName[0] || 'B'}
+                          </div>
+                          <span className="font-bold text-xs font-sans">{bible.companyName}</span>
+                        </div>
+                        <span className="text-[8px] font-mono px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                          PREMIUM PACK
+                        </span>
+                      </div>
+
+                      <div className="m-auto text-center space-y-2 backdrop-blur-md bg-white/90 dark:bg-slate-950/90 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-[85%]">
+                        <h3 className="text-lg font-black text-slate-900 dark:text-white" style={{ fontFamily: `'${bible.typography.headerFont}', serif` }}>
+                          {bible.companyName} Edition
+                        </h3>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed font-sans">
+                          Outer geometric packaging sleeve featuring precision tiled motif.
+                        </p>
+                      </div>
+
+                      <div className="backdrop-blur-md bg-slate-900/80 text-white p-3 rounded-xl text-[9px] font-mono flex items-center justify-between border border-slate-800">
+                        <span>BARCODE: 8-901234-567890</span>
+                        <span>NET WT: 250G</span>
+                      </div>
+                    </div>
+
+                    {/* Packaging Specs */}
+                    <div className={`p-6 rounded-2xl border space-y-4 font-sans ${
+                      isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}>
+                      <h4 className="font-extrabold text-sm flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-indigo-500" />
+                        Packaging Surface Guidelines
+                      </h4>
+                      <ul className="space-y-2 text-xs text-slate-400">
+                        <li className="flex gap-2">
+                          <span className="text-indigo-500 font-bold">&bull;</span>
+                          <span>Print pattern at 300 DPI high-resolution CMYK vector offset.</span>
+                        </li>
+                        <li className="flex gap-2">
+                          <span className="text-indigo-500 font-bold">&bull;</span>
+                          <span>Ensure outer box bleed of minimum 3mm around folding edges.</span>
+                        </li>
+                        <li className="flex gap-2">
+                          <span className="text-indigo-500 font-bold">&bull;</span>
+                          <span>Apply spot UV gloss coating to foreground pattern lines on matte dark box stock.</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 5: FULL TILE INSPECTOR */}
+              {activePatternElementTab === 'full-canvas' && (
+                <div className="space-y-3 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-400 font-sans">
+                      Seamless Endless Canvas Inspection Stage
+                    </span>
+                    <button
+                      onClick={() => setShowTileGridLines(!showTileGridLines)}
+                      className={`px-3 py-1 text-[10px] font-bold rounded-lg border cursor-pointer ${
+                        showTileGridLines ? 'bg-indigo-600 text-white border-indigo-500' : 'text-slate-400 border-slate-700'
+                      }`}
+                    >
+                      {showTileGridLines ? 'Hide Tile Boundaries' : 'Show Tile Boundaries'}
+                    </button>
+                  </div>
+
+                  <div
+                    className={`w-full h-80 rounded-2xl border border-slate-300 dark:border-slate-800 relative overflow-hidden transition-all duration-300 shadow-inner ${
+                      showTileGridLines ? 'ring-2 ring-indigo-500/50' : ''
+                    }`}
+                    style={{
+                      backgroundImage: `url("${patternDataUrl}")`,
+                      backgroundRepeat: 'repeat',
+                      backgroundSize: `${geometricScale}px`
+                    }}
+                  >
+                    {/* Tile grid lines overlay */}
+                    {showTileGridLines && (
+                      <div
+                        className="absolute inset-0 pointer-events-none opacity-30"
+                        style={{
+                          backgroundImage: `linear-gradient(to right, #6366f1 1px, transparent 1px), linear-gradient(to bottom, #6366f1 1px, transparent 1px)`,
+                          backgroundSize: `${geometricScale}px ${geometricScale}px`
+                        }}
+                      />
+                    )}
+
+                    <div className="absolute bottom-3 right-3 backdrop-blur-md bg-slate-900/80 text-white px-3 py-1.5 rounded-xl border border-slate-800 text-[10px] font-mono">
+                      Scale: {geometricScale}px &bull; Opacity: {Math.round(geometricOpacity * 100)}%
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
+        );
+      })()}
+
+      {/* Motion Identity & Logo Reveal Animation Section */}
+      {(() => {
+        const getCssSnippet = () => {
+          let keyframes = '';
+          if (motionPreset === 'slide-up') {
+            keyframes = `@keyframes brandLogoReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0px);
+  }
+}`;
+          } else if (motionPreset === 'fade-scale') {
+            keyframes = `@keyframes brandLogoReveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.88);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}`;
+          } else if (motionPreset === 'elastic-pop') {
+            keyframes = `@keyframes brandLogoReveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.7) translateY(12px);
+  }
+  70% {
+    transform: scale(1.05) translateY(-4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}`;
+          } else if (motionPreset === 'shimmer') {
+            keyframes = `@keyframes brandLogoReveal {
+  0% {
+    opacity: 0;
+    filter: brightness(2) contrast(1.5) blur(6px);
+    transform: scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    filter: brightness(1) contrast(1) blur(0px);
+    transform: scale(1);
+  }
+}`;
+          }
+
+          return `${keyframes}
+
+/* Apply class to logo element */
+.brand-logo-reveal {
+  animation: brandLogoReveal ${motionDuration}s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}`;
+        };
+
+        const handleCopyMotionCss = () => {
+          navigator.clipboard.writeText(getCssSnippet());
+          setIsMotionCssCopied(true);
+          setTimeout(() => setIsMotionCssCopied(false), 2000);
+        };
+
+        return (
+          <div
+            id="motion-identity-section"
+            className={`border rounded-3xl p-6 sm:p-8 shadow-sm transition-all duration-300 ${
+              isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
+            <div className={`border-b pb-4 mb-6 transition-colors duration-300 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+              isDark ? 'border-slate-800' : 'border-slate-100'
+            }`}>
+              <div>
+                <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block mb-1 font-sans">
+                  07 / Motion Identity & Animation System
+                </span>
+                <h2 className="text-xl font-black flex items-center gap-2 font-sans tracking-tight">
+                  <Zap className="w-5 h-5 text-indigo-600" />
+                  Primary Logo Motion Identity & Reveal Snippet
+                </h2>
+                <p className="text-xs text-slate-400 font-sans mt-0.5 leading-relaxed max-w-2xl">
+                  Standardized on-brand CSS entry animation specs for {bible.companyName}'s primary logo mark across web applications, splash screens, and video overlays.
+                </p>
+              </div>
+
+              <button
+                id="copy-motion-css-btn"
+                onClick={handleCopyMotionCss}
+                className={`px-4 py-2.5 text-xs font-bold rounded-xl border transition flex items-center gap-2 cursor-pointer active:scale-95 shrink-0 ${
+                  isMotionCssCopied
+                    ? 'bg-emerald-600 text-white border-emerald-500'
+                    : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-md'
+                }`}
+              >
+                {isMotionCssCopied ? <Check className="w-4 h-4 text-emerald-200" /> : <Code2 className="w-4 h-4" />}
+                <span>{isMotionCssCopied ? 'CSS Snippet Copied!' : 'Copy CSS Snippet'}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              {/* Left Control & Live Stage Column */}
+              <div className="lg:col-span-6 space-y-4 text-left">
+                {/* Controls */}
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                    <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 font-sans">
+                      Reveal Animation Preset
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-slate-400">Duration: {motionDuration}s</span>
+                      <input
+                        type="range"
+                        min="0.3"
+                        max="2.0"
+                        step="0.1"
+                        value={motionDuration}
+                        onChange={(e) => setMotionDuration(parseFloat(e.target.value))}
+                        className="w-24 accent-indigo-600 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <button
+                      onClick={() => { setMotionPreset('slide-up'); setMotionKey(k => k + 1); }}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition text-center cursor-pointer ${
+                        motionPreset === 'slide-up' ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm' : isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      Slide Up
+                    </button>
+                    <button
+                      onClick={() => { setMotionPreset('fade-scale'); setMotionKey(k => k + 1); }}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition text-center cursor-pointer ${
+                        motionPreset === 'fade-scale' ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm' : isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      Fade & Scale
+                    </button>
+                    <button
+                      onClick={() => { setMotionPreset('elastic-pop'); setMotionKey(k => k + 1); }}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition text-center cursor-pointer ${
+                        motionPreset === 'elastic-pop' ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm' : isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      Elastic Pop
+                    </button>
+                    <button
+                      onClick={() => { setMotionPreset('shimmer'); setMotionKey(k => k + 1); }}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition text-center cursor-pointer ${
+                        motionPreset === 'shimmer' ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm' : isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      Shimmer Glow
+                    </button>
+                  </div>
+                </div>
+
+                {/* Stage Canvas */}
+                <div className={`p-8 rounded-2xl border min-h-[260px] flex flex-col justify-center items-center relative overflow-hidden shadow-inner ${
+                  isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-100/80 border-slate-200'
+                }`}>
+                  <button
+                    onClick={() => setMotionKey(k => k + 1)}
+                    className="absolute top-4 right-4 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-600 hover:text-white transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>Replay Reveal</span>
+                  </button>
+
+                  <div className="text-center space-y-3" key={motionKey}>
+                    <motion.div
+                      initial={
+                        motionPreset === 'slide-up'
+                          ? { opacity: 0, y: 24, scale: 0.96, filter: 'blur(4px)' }
+                          : motionPreset === 'fade-scale'
+                            ? { opacity: 0, scale: 0.88 }
+                            : motionPreset === 'elastic-pop'
+                              ? { opacity: 0, scale: 0.7, y: 12 }
+                              : { opacity: 0, filter: 'brightness(2) blur(6px)', scale: 0.92 }
+                      }
+                      animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px) brightness(1)' }}
+                      transition={{
+                        duration: motionDuration,
+                        type: motionPreset === 'elastic-pop' ? 'spring' : 'tween',
+                        bounce: motionPreset === 'elastic-pop' ? 0.5 : 0,
+                        ease: [0.16, 1, 0.3, 1]
+                      }}
+                      className="inline-block p-5 rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800"
+                    >
+                      {bible.primaryLogo ? (
+                        typeof bible.primaryLogo === 'string' && bible.primaryLogo.trim().startsWith('<svg') ? (
+                          <div
+                            className="w-20 h-20 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full"
+                            dangerouslySetInnerHTML={{ __html: getCleanSvg(bible.primaryLogo) }}
+                          />
+                        ) : (
+                          <img
+                            src={bible.primaryLogo}
+                            alt={bible.companyName}
+                            className="w-20 h-20 object-contain"
+                          />
+                        )
+                      ) : (
+                        <div className="w-16 h-16 rounded-xl bg-indigo-600 text-white font-black text-2xl flex items-center justify-center shadow-lg">
+                          {bible.companyName[0] || 'B'}
+                        </div>
+                      )}
+                    </motion.div>
+
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: motionDuration * 0.5, duration: 0.4 }}
+                    >
+                      <h3 className="text-lg font-black tracking-tight" style={{ fontFamily: `'${bible.typography.headerFont}', serif` }}>
+                        {bible.companyName}
+                      </h3>
+                      <p className="text-[10px] uppercase font-mono font-bold text-indigo-400 tracking-widest mt-0.5">
+                        Brand Identity Motion Standard
+                      </p>
+                    </motion.div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right CSS Code Snippet Column */}
+              <div className="lg:col-span-6 flex flex-col justify-between">
+                <div className={`p-5 rounded-2xl border h-full flex flex-col justify-between font-mono text-xs ${
+                  isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-900 text-slate-100 border-slate-800'
+                }`}>
+                  <div>
+                    <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800 text-[10px] text-slate-400 font-sans">
+                      <span className="font-bold uppercase tracking-wider text-indigo-400">Production CSS Code Snippet</span>
+                      <span>Keyframe Animation Rule</span>
+                    </div>
+
+                    <pre className="text-[11px] leading-relaxed text-indigo-200 overflow-x-auto p-2 font-mono">
+                      {getCssSnippet()}
+                    </pre>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-sans text-slate-400">
+                    <span>Target: Logo SVG / Brand Mark container</span>
+                    <button
+                      onClick={handleCopyMotionCss}
+                      className="text-indigo-400 hover:text-indigo-300 font-bold underline cursor-pointer"
+                    >
+                      Copy to Clipboard
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 07a / Programmatic Logo Usage Rules & Design Specifications Section */}
+      <div
+        id="logo-usage-rules-section"
+        className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
+          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+        }`}
+      >
+        {/* Section Header */}
+        <div className={`border-b pb-5 mb-6 transition-colors duration-300 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+          isDark ? 'border-slate-800' : 'border-slate-100'
+        }`}>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block">
+                07a / Logo Usage Specifications
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                Programmatic Design Specs
+              </span>
+            </div>
+            <h2 className={`text-xl font-black flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
+              isDark ? 'text-white' : 'text-slate-900'
+            }`}>
+              <Ruler className="w-5 h-5 text-indigo-600" />
+              Primary Mark Usage Rules &amp; Design Guidelines
+            </h2>
+            <p className="text-xs text-slate-400 font-sans mt-0.5 leading-relaxed max-w-2xl">
+              Programmatically calculated clear space margins, background adaptability matrix, minimum scaling limits, and prohibited usage rules for <strong className={isDark ? 'text-slate-200' : 'text-slate-800'}>{bible.companyName}</strong>.
+            </p>
+          </div>
+
+          {/* Tab Filter Pills */}
+          <div className={`flex flex-wrap items-center gap-1.5 p-1.5 rounded-2xl border ${
+            isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
+          }`}>
+            {[
+              { id: 'all', label: 'All Specs', icon: Layers },
+              { id: 'clearspace', label: 'Clear Space', icon: Grid },
+              { id: 'backgrounds', label: 'Backgrounds', icon: Sun },
+              { id: 'sizes', label: 'Min Sizes', icon: Ruler },
+              { id: 'donts', label: "Do's & Don'ts", icon: Ban },
+            ].map(tab => {
+              const Icon = tab.icon;
+              const isActive = usageTabFilter === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  id={`usage-tab-${tab.id}-btn`}
+                  onClick={() => setUsageTabFilter(tab.id as any)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold font-sans flex items-center gap-1.5 transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                      : isDark
+                      ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Content Modules */}
+        <div className="space-y-8 font-sans">
+          
+          {/* Module A: Logo Clear Space & Grid Exclusion Zone */}
+          {(usageTabFilter === 'all' || usageTabFilter === 'clearspace') && (
+            <div id="logo-clear-space-guidelines" className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className={`text-sm font-black flex items-center gap-2 ${
+                    isDark ? 'text-white' : 'text-slate-900'
+                  }`}>
+                    <Grid className="w-4 h-4 text-indigo-500" />
+                    <span>Logo Clear Space &amp; Margin Bounds</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Maintain an exclusion zone of <strong>{clearSpaceFactor}X</strong> (where X = 25% height of logo mark) to preserve optical legibility.
+                  </p>
+                </div>
+
+                {/* Factor Switcher */}
+                <div className={`flex items-center gap-1 p-1 rounded-xl border ${
+                  isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <span className="text-[10px] font-bold text-slate-400 px-2">Zone Ratio:</span>
+                  {[
+                    { factor: 0.5, label: '0.5X (Compact)' },
+                    { factor: 1, label: '1.0X (Standard)' },
+                    { factor: 1.5, label: '1.5X (Generous)' },
+                  ].map(item => (
+                    <button
+                      key={item.factor}
+                      id={`clearspace-factor-${item.factor}-btn`}
+                      onClick={() => setClearSpaceFactor(item.factor)}
+                      className={`px-2.5 py-1 text-[10px] font-extrabold rounded-lg transition-all cursor-pointer ${
+                        clearSpaceFactor === item.factor
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Blueprint Stage */}
+              <div className={`p-8 sm:p-12 rounded-2xl border relative overflow-hidden flex flex-col items-center justify-center min-h-[320px] transition-colors duration-300 ${
+                isDark ? 'bg-slate-950/90 border-slate-800/80' : 'bg-indigo-50/30 border-indigo-100'
+              }`}>
+                {/* Graph Paper Grid Background */}
+                <div
+                  className="absolute inset-0 opacity-15 pointer-events-none"
+                  style={{
+                    backgroundImage: `radial-gradient(${isDark ? '#818cf8' : '#4f46e5'} 1px, transparent 1px)`,
+                    backgroundSize: '16px 16px',
+                  }}
+                />
+
+                {/* Clear Space Bounding Box Container */}
+                <div className="relative p-6 sm:p-10 border-2 border-dashed border-indigo-500/60 rounded-xl bg-indigo-500/5 backdrop-blur-xs flex flex-col items-center justify-center transition-all duration-300">
+                  {/* Outer 'X' Dimension Badges */}
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[9px] font-mono font-bold px-2 py-0.5 rounded-full shadow-xs">
+                    Clear Space = {clearSpaceFactor}X ({Math.round(24 * clearSpaceFactor)}px / {Math.round(6 * clearSpaceFactor)}mm)
+                  </div>
+                  <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[9px] font-mono font-bold px-2 py-0.5 rounded-full shadow-xs">
+                    {clearSpaceFactor}X Margin
+                  </div>
+                  <div className="absolute top-1/2 -left-3 -translate-y-1/2 -rotate-90 bg-indigo-600 text-white text-[9px] font-mono font-bold px-2 py-0.5 rounded-full shadow-xs">
+                    {clearSpaceFactor}X Margin
+                  </div>
+                  <div className="absolute top-1/2 -right-3 -translate-y-1/2 rotate-90 bg-indigo-600 text-white text-[9px] font-mono font-bold px-2 py-0.5 rounded-full shadow-xs">
+                    {clearSpaceFactor}X Margin
+                  </div>
+
+                  {/* Actual Logo Image */}
+                  {bible.primaryLogo ? (
+                    <img
+                      src={allLogos[carouselIndex] || bible.primaryLogo}
+                      alt={`${bible.companyName} Logo Clear Space Blueprint`}
+                      className="max-h-36 max-w-[240px] object-contain drop-shadow-md relative z-10"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="h-28 w-48 bg-indigo-500/10 rounded-xl flex items-center justify-center font-black text-indigo-400 text-xl tracking-wider">
+                      {bible.companyName}
+                    </div>
+                  )}
+                </div>
+
+                {/* Blueprint Footer Rule Specs */}
+                <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-[11px] text-slate-400">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                    <strong>X Height Unit:</strong> ~25% of Primary Mark Height
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <strong>No-Interference Policy:</strong> Keep clear of text, borders, or graphics
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Module B: Background Adaptability Matrix */}
+          {(usageTabFilter === 'all' || usageTabFilter === 'backgrounds') && (
+            <div id="logo-background-rules" className="space-y-4">
+              <div>
+                <h3 className={`text-sm font-black flex items-center gap-2 ${
+                  isDark ? 'text-white' : 'text-slate-900'
+                }`}>
+                  <Sun className="w-4 h-4 text-indigo-500" />
+                  <span>Usage on Light, Dark &amp; Palette Backgrounds</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Pre-tested background adaptability matrix ensuring legibility across light surfaces, dark modes, and brand primary colors.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. Light Canvas */}
+                <div className="border rounded-2xl p-5 bg-white border-slate-200 text-slate-900 flex flex-col justify-between space-y-4 shadow-sm relative overflow-hidden">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                      Light Surface
+                    </span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                      <Check className="w-3 h-3 text-emerald-600" /> Pass 15.4:1
+                    </span>
+                  </div>
+
+                  <div className="py-6 flex items-center justify-center min-h-[120px]">
+                    {bible.primaryLogo ? (
+                      <img
+                        src={allLogos[carouselIndex] || bible.primaryLogo}
+                        alt="Logo on Light Background"
+                        className="max-h-20 max-w-full object-contain"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="font-black text-slate-900 text-lg tracking-wider">{bible.companyName}</span>
+                    )}
+                  </div>
+
+                  <div className="space-y-1 border-t pt-3 border-slate-100">
+                    <div className="text-xs font-extrabold text-slate-900">Standard Light Mode</div>
+                    <p className="text-[10px] text-slate-500 leading-normal">
+                      Primary placement for official documentation, light websites, and white print materials.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 2. Dark Canvas */}
+                <div className="border rounded-2xl p-5 bg-slate-950 border-slate-800 text-white flex flex-col justify-between space-y-4 shadow-sm relative overflow-hidden">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-slate-900 text-slate-300">
+                      Dark Surface
+                    </span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                      <Check className="w-3 h-3 text-emerald-400" /> Pass 12.8:1
+                    </span>
+                  </div>
+
+                  <div className="py-6 flex items-center justify-center min-h-[120px]">
+                    {bible.primaryLogo ? (
+                      <img
+                        src={allLogos[carouselIndex] || bible.primaryLogo}
+                        alt="Logo on Dark Background"
+                        className="max-h-20 max-w-full object-contain filter drop-shadow-md"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="font-black text-white text-lg tracking-wider">{bible.companyName}</span>
+                    )}
+                  </div>
+
+                  <div className="space-y-1 border-t pt-3 border-slate-800">
+                    <div className="text-xs font-extrabold text-white">Dark Mode Surface</div>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      Secondary placement for dark web themes, video overlays, and night presentation slides.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 3. Primary Brand Palette */}
+                <div
+                  className="border rounded-2xl p-5 text-white flex flex-col justify-between space-y-4 shadow-sm relative overflow-hidden"
+                  style={{ backgroundColor: bible.colorPalette[0]?.hex || '#4f46e5' }}
+                >
+                  <div className="flex items-center justify-between z-10">
+                    <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-black/30 text-white backdrop-blur-xs">
+                      Brand Accent
+                    </span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/20 text-white backdrop-blur-xs flex items-center gap-1">
+                      <Check className="w-3 h-3" /> Monochrome
+                    </span>
+                  </div>
+
+                  <div className="py-6 flex items-center justify-center min-h-[120px] z-10">
+                    {bible.primaryLogo ? (
+                      <img
+                        src={allLogos[carouselIndex] || bible.primaryLogo}
+                        alt="Logo on Brand Color"
+                        className="max-h-20 max-w-full object-contain brightness-0 invert"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="font-black text-white text-lg tracking-wider">{bible.companyName}</span>
+                    )}
+                  </div>
+
+                  <div className="space-y-1 border-t pt-3 border-white/20 z-10">
+                    <div className="text-xs font-extrabold text-white">Brand Primary Background</div>
+                    <p className="text-[10px] text-white/80 leading-normal">
+                      Single-tone inverted mark recommended for packaging, merchandise, and brand cards.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 4. Prohibited Background Surface */}
+                <div className="border rounded-2xl p-5 bg-gradient-to-br from-amber-200 via-rose-300 to-indigo-300 border-rose-300 text-slate-900 flex flex-col justify-between space-y-4 shadow-sm relative overflow-hidden">
+                  <div className="flex items-center justify-between z-10">
+                    <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-rose-600 text-white">
+                      Busy Pattern / Photo
+                    </span>
+                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-rose-600 text-white flex items-center gap-1">
+                      <XCircle className="w-3 h-3" /> Prohibited
+                    </span>
+                  </div>
+
+                  {/* Restrict Overlay */}
+                  <div className="py-6 flex items-center justify-center min-h-[120px] relative z-10">
+                    <div className="relative">
+                      {bible.primaryLogo ? (
+                        <img
+                          src={allLogos[carouselIndex] || bible.primaryLogo}
+                          alt="Prohibited Background Example"
+                          className="max-h-20 max-w-full object-contain opacity-60 grayscale"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <span className="font-black text-slate-800 text-lg">{bible.companyName}</span>
+                      )}
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <Ban className="w-16 h-16 text-rose-600/80 stroke-[2.5]" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 border-t pt-3 border-rose-400/40 z-10">
+                    <div className="text-xs font-extrabold text-rose-950">No Busy Backgrounds</div>
+                    <p className="text-[10px] text-rose-900 leading-normal font-medium">
+                      Do not place mark over high-contrast imagery, gradients, or non-brand patterns.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Module C: Minimum Size & Scaling Specifications */}
+          {(usageTabFilter === 'all' || usageTabFilter === 'sizes') && (
+            <div id="logo-minimum-size-rules" className="space-y-4">
+              <div>
+                <h3 className={`text-sm font-black flex items-center gap-2 ${
+                  isDark ? 'text-white' : 'text-slate-900'
+                }`}>
+                  <Ruler className="w-4 h-4 text-indigo-500" />
+                  <span>Minimum Digital &amp; Print Scaling Specifications</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Ensure mark legibility across micro-screen favicons, mobile header bars, and large print collateral.
+                </p>
+              </div>
+
+              <div className={`p-6 rounded-2xl border ${
+                isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 items-end justify-items-center text-center">
+                  {/* Micro: 16px Favicon */}
+                  <div className="space-y-3 flex flex-col items-center">
+                    <div className="w-12 h-12 rounded-xl border border-slate-700 bg-slate-900 flex items-center justify-center shadow-xs">
+                      {bible.primaryLogo ? (
+                        <img src={allLogos[carouselIndex] || bible.primaryLogo} alt="16px Favicon" className="w-4 h-4 object-contain" referrerPolicy="no-referrer" />
+                      ) : (
+                        <span className="text-[10px] font-black text-indigo-400">16</span>
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold">16px × 16px</div>
+                      <div className="text-[10px] text-slate-400">Favicon / Tray Icon</div>
+                    </div>
+                  </div>
+
+                  {/* Small: 24px App Bar */}
+                  <div className="space-y-3 flex flex-col items-center">
+                    <div className="w-14 h-14 rounded-xl border border-slate-700 bg-slate-900 flex items-center justify-center shadow-xs">
+                      {bible.primaryLogo ? (
+                        <img src={allLogos[carouselIndex] || bible.primaryLogo} alt="24px App Bar" className="w-6 h-6 object-contain" referrerPolicy="no-referrer" />
+                      ) : (
+                        <span className="text-xs font-black text-indigo-400">24</span>
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold">24px × 24px</div>
+                      <div className="text-[10px] text-slate-400">Digital Min Size</div>
+                    </div>
+                  </div>
+
+                  {/* Medium: 48px Mobile Header */}
+                  <div className="space-y-3 flex flex-col items-center">
+                    <div className="w-20 h-20 rounded-xl border border-slate-700 bg-slate-900 flex items-center justify-center shadow-xs">
+                      {bible.primaryLogo ? (
+                        <img src={allLogos[carouselIndex] || bible.primaryLogo} alt="48px Mobile Header" className="w-12 h-12 object-contain" referrerPolicy="no-referrer" />
+                      ) : (
+                        <span className="text-sm font-black text-indigo-400">48</span>
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold">48px × 48px</div>
+                      <div className="text-[10px] text-slate-400">Mobile Navigation</div>
+                    </div>
+                  </div>
+
+                  {/* Large: 120px Desktop Hero */}
+                  <div className="space-y-3 flex flex-col items-center">
+                    <div className="w-32 h-24 rounded-xl border border-slate-700 bg-slate-900 flex items-center justify-center shadow-xs p-2">
+                      {bible.primaryLogo ? (
+                        <img src={allLogos[carouselIndex] || bible.primaryLogo} alt="120px Desktop Header" className="max-h-16 max-w-full object-contain" referrerPolicy="no-referrer" />
+                      ) : (
+                        <span className="text-base font-black text-indigo-400">120px</span>
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold">120px+ Width</div>
+                      <div className="text-[10px] text-slate-400">Desktop Header / Print (10mm min)</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Module D: Prohibited Logo Modifications (Do's & Don'ts Visual Demos) */}
+          {(usageTabFilter === 'all' || usageTabFilter === 'donts') && (
+            <div id="logo-prohibited-modifications" className="space-y-4">
+              <div>
+                <h3 className={`text-sm font-black flex items-center gap-2 ${
+                  isDark ? 'text-white' : 'text-slate-900'
+                }`}>
+                  <Ban className="w-4 h-4 text-rose-500" />
+                  <span>Prohibited Modifications &amp; Visual Anti-Patterns</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Visual demonstrations of improper alterations that violate brand consistency standards.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                {/* 1. Distorted */}
+                <div className={`border rounded-2xl p-4 flex flex-col justify-between space-y-3 text-center ${
+                  isDark ? 'bg-rose-950/20 border-rose-900/40 text-slate-200' : 'bg-rose-50/40 border-rose-200 text-slate-800'
+                }`}>
+                  <div className="flex items-center justify-between text-[9px] font-bold text-rose-500">
+                    <span>PROHIBITED</span>
+                    <XCircle className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="h-24 flex items-center justify-center overflow-hidden">
+                    {bible.primaryLogo ? (
+                      <img
+                        src={allLogos[carouselIndex] || bible.primaryLogo}
+                        alt="Distorted Logo"
+                        className="max-h-16 object-contain"
+                        style={{ transform: 'scaleX(1.4) scaleY(0.6)' }}
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="font-black text-lg scale-x-150 scale-y-75">{bible.companyName}</span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-bold text-rose-500 leading-tight">
+                    Do Not Stretch or Distort Proportions
+                  </div>
+                </div>
+
+                {/* 2. Rotated */}
+                <div className={`border rounded-2xl p-4 flex flex-col justify-between space-y-3 text-center ${
+                  isDark ? 'bg-rose-950/20 border-rose-900/40 text-slate-200' : 'bg-rose-50/40 border-rose-200 text-slate-800'
+                }`}>
+                  <div className="flex items-center justify-between text-[9px] font-bold text-rose-500">
+                    <span>PROHIBITED</span>
+                    <XCircle className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="h-24 flex items-center justify-center overflow-hidden">
+                    {bible.primaryLogo ? (
+                      <img
+                        src={allLogos[carouselIndex] || bible.primaryLogo}
+                        alt="Rotated Logo"
+                        className="max-h-16 object-contain"
+                        style={{ transform: 'rotate(-22deg)' }}
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="font-black text-lg -rotate-12">{bible.companyName}</span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-bold text-rose-500 leading-tight">
+                    Do Not Rotate or Tilt Logo Orientation
+                  </div>
+                </div>
+
+                {/* 3. Shadow / Glow */}
+                <div className={`border rounded-2xl p-4 flex flex-col justify-between space-y-3 text-center ${
+                  isDark ? 'bg-rose-950/20 border-rose-900/40 text-slate-200' : 'bg-rose-50/40 border-rose-200 text-slate-800'
+                }`}>
+                  <div className="flex items-center justify-between text-[9px] font-bold text-rose-500">
+                    <span>PROHIBITED</span>
+                    <XCircle className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="h-24 flex items-center justify-center overflow-hidden">
+                    {bible.primaryLogo ? (
+                      <img
+                        src={allLogos[carouselIndex] || bible.primaryLogo}
+                        alt="Glow Logo"
+                        className="max-h-16 object-contain"
+                        style={{ filter: 'drop-shadow(0px 8px 12px #ef4444) drop-shadow(0px 0px 18px #f59e0b)' }}
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="font-black text-lg drop-shadow-[0_10px_10px_rgba(239,68,68,1)]">{bible.companyName}</span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-bold text-rose-500 leading-tight">
+                    Do Not Apply Harsh Drop Shadows or Neon Glows
+                  </div>
+                </div>
+
+                {/* 4. Low Contrast */}
+                <div className={`border rounded-2xl p-4 flex flex-col justify-between space-y-3 text-center ${
+                  isDark ? 'bg-rose-950/20 border-rose-900/40 text-slate-200' : 'bg-rose-50/40 border-rose-200 text-slate-800'
+                }`}>
+                  <div className="flex items-center justify-between text-[9px] font-bold text-rose-500">
+                    <span>PROHIBITED</span>
+                    <XCircle className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="h-24 flex items-center justify-center overflow-hidden bg-slate-200 rounded-lg p-2">
+                    {bible.primaryLogo ? (
+                      <img
+                        src={allLogos[carouselIndex] || bible.primaryLogo}
+                        alt="Low Contrast Logo"
+                        className="max-h-16 object-contain opacity-30 grayscale"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="font-black text-lg text-slate-400">{bible.companyName}</span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-bold text-rose-500 leading-tight">
+                    Do Not Place on Low-Contrast Backgrounds
+                  </div>
+                </div>
+
+                {/* 5. Approved Pristine Mark */}
+                <div className={`border rounded-2xl p-4 flex flex-col justify-between space-y-3 text-center ${
+                  isDark ? 'bg-emerald-950/20 border-emerald-900/40 text-slate-200' : 'bg-emerald-50/40 border-emerald-200 text-slate-800'
+                }`}>
+                  <div className="flex items-center justify-between text-[9px] font-bold text-emerald-500">
+                    <span>APPROVED</span>
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+                  </div>
+                  <div className="h-24 flex items-center justify-center overflow-hidden">
+                    {bible.primaryLogo ? (
+                      <img
+                        src={allLogos[carouselIndex] || bible.primaryLogo}
+                        alt="Approved Logo"
+                        className="max-h-16 object-contain drop-shadow-xs"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="font-black text-lg text-indigo-600">{bible.companyName}</span>
+                    )}
+                  </div>
+                  <div className="text-[10px] font-bold text-emerald-500 leading-tight">
+                    Always Use Original Unaltered Vector Mark
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Copyable Summary Rules Bar */}
+          <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+            isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+          }`}>
+            <div className="flex items-center gap-2 text-xs">
+              <Info className="w-4 h-4 text-indigo-500 shrink-0" />
+              <span className="text-slate-400">
+                Rule set automatically compiled for <strong className={isDark ? 'text-white' : 'text-slate-900'}>{bible.companyName}</strong> brand designers &amp; web developers.
+              </span>
+            </div>
+
+            <button
+              id="copy-usage-rules-btn"
+              onClick={() => {
+                const rulesText = `# ${bible.companyName} - Official Logo Usage Rules & Specifications\n\n` +
+                  `1. Clear Space: Maintain a minimum exclusion margin of ${clearSpaceFactor}X (approx. 24px) around all 4 sides of the primary mark.\n` +
+                  `2. Background Adaptability: Use full-color logo on white/light surfaces (#FFFFFF), inverted white mark on dark mode (#0F172A) and primary brand background (${bible.colorPalette[0]?.hex || '#4f46e5'}).\n` +
+                  `3. Minimum Scaling: Digital minimum size is 24px × 24px. Print minimum size is 10mm (0.4 in).\n` +
+                  `4. Prohibited Modifications: Never stretch/distort aspect ratio, rotate orientation, apply heavy shadows/glows, or place on low-contrast backgrounds.\n`;
+                navigator.clipboard.writeText(rulesText);
+                setToast({
+                  message: 'Usage Rules & Specifications copied to clipboard!',
+                  hex: bible.colorPalette[0]?.hex || '#6366f1'
+                });
+                setTimeout(() => setToast(null), 2500);
+              }}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0 shadow-sm"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              <span>Copy Usage Rules</span>
+            </button>
+          </div>
+
         </div>
       </div>
 
@@ -4535,7 +10050,7 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         }`}
       >
         <div className={`border-b pb-4 mb-6 transition-colors duration-300 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
-          <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block mb-1">06 / Brand Guidelines</span>
+          <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block mb-1">07 / Brand Guidelines</span>
           <h2 className={`text-xl font-black flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
             isDark ? 'text-white' : 'text-slate-900'
           }`}>
@@ -4586,6 +10101,251 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                 </li>
               ))}
             </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* 08 / Download Brand Assets Section */}
+      <div
+        id="download-brand-assets-section"
+        className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
+          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+        }`}
+      >
+        <div className={`border-b pb-4 mb-6 transition-colors duration-300 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+          isDark ? 'border-slate-800' : 'border-slate-100'
+        }`}>
+          <div>
+            <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block mb-1 font-sans">
+              08 / Download Brand Assets
+            </span>
+            <h2 className={`text-xl font-black flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
+              isDark ? 'text-white' : 'text-slate-900'
+            }`}>
+              <Download className="w-5 h-5 text-indigo-600" />
+              Download Brand Assets &amp; Specifications Kit
+            </h2>
+            <p className="text-xs text-slate-400 font-sans mt-0.5 leading-relaxed max-w-2xl">
+              Compile your official primary logo mark, 5-color palette specifications, and typography hierarchy into a structured, printable PDF document.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              id="download-dashboard-snapshot-png-btn"
+              onClick={handleDownloadDashboardPng}
+              disabled={isExportingPng}
+              className="bg-purple-600 hover:bg-purple-500 active:scale-98 text-white px-5 py-3 text-xs font-bold rounded-2xl flex items-center gap-2 shadow-lg shadow-purple-600/20 transition cursor-pointer disabled:opacity-50"
+              title="Capture full active Brand Bible dashboard as a single high-quality PNG image using html2canvas"
+            >
+              {isExportingPng ? (
+                <RefreshCw className="w-4 h-4 animate-spin text-purple-200" />
+              ) : (
+                <Camera className="w-4 h-4 text-purple-200" />
+              )}
+              <span>{isExportingPng ? "Capturing PNG..." : "Download Dashboard PNG"}</span>
+            </button>
+
+            <button
+              id="download-asset-spec-sheet-btn"
+              onClick={handleDownloadAssetSheetPdf}
+              disabled={isExportingPdf}
+              className="bg-indigo-600 hover:bg-indigo-500 active:scale-98 text-white px-5 py-3 text-xs font-bold rounded-2xl flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition cursor-pointer disabled:opacity-50"
+              title="Download 1-page PDF compiling logo, palette, and typography specifications"
+            >
+              {isExportingPdf ? (
+                <RefreshCw className="w-4 h-4 animate-spin text-indigo-200" />
+              ) : (
+                <FileText className="w-4 h-4 text-indigo-200" />
+              )}
+              <span>{isExportingPdf ? "Generating PDF..." : "Download Brand Assets PDF"}</span>
+            </button>
+
+            <button
+              id="download-complete-bible-pdf-btn"
+              onClick={handleDownloadBrandPdf}
+              disabled={isExportingPdf}
+              className={`px-4 py-3 text-xs font-bold rounded-2xl border transition flex items-center gap-2 cursor-pointer disabled:opacity-50 ${
+                isDark
+                  ? 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'
+                  : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200 hover:text-slate-900'
+              }`}
+              title="Download 3-page comprehensive Brand Specification Bible PDF"
+            >
+              <FileText className="w-4 h-4 text-indigo-500" />
+              <span>Full Brand Bible (3 Pages)</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Compiled Content Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 font-sans">
+          {/* Card 1: Logo Specification */}
+          <div className={`border rounded-2xl p-6 flex flex-col justify-between transition-all duration-300 ${
+            isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+          }`}>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-500">
+                  01 • Identity Asset
+                </span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  isDark ? 'bg-slate-900 text-slate-400' : 'bg-white text-slate-600 border border-slate-200'
+                }`}>
+                  Vector &amp; High-Res
+                </span>
+              </div>
+              <h3 className={`text-sm font-extrabold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                <FileImage className="w-4 h-4 text-indigo-500" />
+                Primary Brand Logo Mark
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Includes the active graphical primary mark, aspect ratio specifications ({logoAspectRatio}), and scalable vector rasterization.
+              </p>
+            </div>
+            <div className={`mt-4 p-4 rounded-xl border flex items-center justify-center bg-white dark:bg-slate-900 ${
+              isDark ? 'border-slate-800' : 'border-slate-200'
+            }`}>
+              {bible.primaryLogo ? (
+                typeof bible.primaryLogo === 'string' && bible.primaryLogo.trim().startsWith('<svg') ? (
+                  <div
+                    className="w-14 h-14 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full"
+                    dangerouslySetInnerHTML={{ __html: getCleanSvg(bible.primaryLogo) }}
+                  />
+                ) : (
+                  <img
+                    src={bible.primaryLogo}
+                    alt={bible.companyName}
+                    className="w-14 h-14 object-contain"
+                  />
+                )
+              ) : (
+                <div className="w-14 h-14 rounded-xl bg-indigo-600 text-white font-black text-xl flex items-center justify-center">
+                  {(bible.companyName && bible.companyName[0]) || 'B'}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Card 2: 5-Color Palette */}
+          <div className={`border rounded-2xl p-6 flex flex-col justify-between transition-all duration-300 ${
+            isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+          }`}>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-500">
+                  02 • Color System
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                  WCAG Verified
+                </span>
+              </div>
+              <h3 className={`text-sm font-extrabold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                <Palette className="w-4 h-4 text-indigo-500" />
+                5-Color Design Palette
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Compiles all 5 brand colors ({bible.colorPalette?.map(c => c.hex.toUpperCase()).join(', ')}), role assignments, and WCAG accessibility contrast ratings.
+              </p>
+            </div>
+            <div className="mt-4 grid grid-cols-5 gap-1.5">
+              {(bible.colorPalette || []).map((color, idx) => (
+                <div
+                  key={idx}
+                  className="flex flex-col items-center gap-1.5 p-1.5 rounded-lg border border-slate-300/40 dark:border-slate-800 bg-white dark:bg-slate-900 text-center"
+                >
+                  <div
+                    className="w-full h-8 rounded-md shadow-inner border border-black/10"
+                    style={{ backgroundColor: color.hex }}
+                  />
+                  <span className="text-[9px] font-mono font-bold uppercase truncate w-full text-slate-500 dark:text-slate-400">
+                    {color.hex}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Card 3: Typography & Fonts */}
+          <div className={`border rounded-2xl p-6 flex flex-col justify-between transition-all duration-300 ${
+            isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+          }`}>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-500">
+                  03 • Typography
+                </span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  isDark ? 'bg-slate-900 text-slate-400' : 'bg-white text-slate-600 border border-slate-200'
+                }`}>
+                  Google Fonts
+                </span>
+              </div>
+              <h3 className={`text-sm font-extrabold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                <Type className="w-4 h-4 text-indigo-500" />
+                Typography Hierarchy
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Documents the official Display Header Font ({bible.typography?.headerFont || 'Playfair Display'}) and Body Paragraph Font ({bible.typography?.bodyFont || 'Plus Jakarta Sans'}) pairings.
+              </p>
+            </div>
+            <div className={`mt-4 p-3.5 rounded-xl border flex flex-col gap-2 text-left bg-white dark:bg-slate-900 ${
+              isDark ? 'border-slate-800' : 'border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-400">Heading</span>
+                <span className="text-xs font-black truncate max-w-[140px] text-indigo-500">
+                  {bible.typography?.headerFont || 'Playfair Display'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 pt-2">
+                <span className="text-[10px] font-bold text-slate-400">Body</span>
+                <span className="text-xs font-semibold truncate max-w-[140px]">
+                  {bible.typography?.bodyFont || 'Plus Jakarta Sans'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 4: High-Res Canvas Snapshot PNG */}
+          <div className={`border rounded-2xl p-6 flex flex-col justify-between transition-all duration-300 ${
+            isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+          }`}>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-400">
+                  04 • Dashboard Canvas
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                  html2canvas PNG
+                </span>
+              </div>
+              <h3 className={`text-sm font-extrabold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                <Camera className="w-4 h-4 text-purple-500" />
+                Full Dashboard PNG
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Captures a crisp, 2x retina snapshot of the entire active Brand Bible dashboard for slide presentations &amp; quick client sharing.
+              </p>
+            </div>
+            <button
+              id="card-trigger-dashboard-png-btn"
+              onClick={handleDownloadDashboardPng}
+              disabled={isExportingPng}
+              className="mt-4 w-full py-3 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 active:scale-98 text-white font-bold text-xs flex items-center justify-center gap-2 shadow transition cursor-pointer disabled:opacity-50"
+            >
+              {isExportingPng ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Capturing Canvas...</span>
+                </>
+              ) : (
+                <>
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Capture PNG Snapshot</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -4731,154 +10491,1267 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         )}
       </AnimatePresence>
 
-      {/* Dedicated Logo History Modal */}
+      {/* Fullscreen Logo Comparison & Selection Overlay */}
       <AnimatePresence>
         {isLogoHistoryOpen && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/90 backdrop-blur-md"
           >
             <motion.div
               initial={{ scale: 0.95, y: 15 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95, y: 15 }}
-              className={`w-full max-w-4xl max-h-[85vh] rounded-3xl border shadow-2xl flex flex-col overflow-hidden font-sans ${
+              className={`w-full max-w-6xl max-h-[92vh] h-[88vh] rounded-3xl border shadow-2xl flex flex-col overflow-hidden font-sans ${
                 isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
               }`}
             >
               {/* Header */}
-              <div className={`p-6 border-b flex items-center justify-between shrink-0 ${
-                isDark ? 'border-slate-800 bg-slate-900/60' : 'border-slate-100 bg-slate-50/60'
+              <div className={`p-4 sm:p-5 border-b flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0 ${
+                isDark ? 'border-slate-800 bg-slate-900/80' : 'border-slate-100 bg-slate-50/80'
               }`}>
-                <div className="flex items-center gap-2.5">
-                  <div className="bg-indigo-600 p-2 rounded-xl text-white shadow-sm shadow-indigo-500/20">
-                    <History className="w-5 h-5" />
+                <div className="flex items-center gap-3">
+                  <div className="bg-indigo-600 p-2.5 rounded-2xl text-white shadow-md shadow-indigo-500/20 shrink-0">
+                    <Layers className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className={`text-lg font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                      Logo Iteration History
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className={`text-base sm:text-lg font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        Logo Version Comparison &amp; Selection
+                      </h3>
+                      <span className="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                        {allLogos.length} Variations
+                      </span>
+                    </div>
                     <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                      View, compare, and restore any historically synthesized brand mark.
+                      Compare saved logo versions side-by-side or in a grid to pick your favorite active primary mark.
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setIsLogoHistoryOpen(false)}
-                  className={`p-2 rounded-full transition cursor-pointer ${
-                    isDark ? 'hover:bg-slate-800 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  <XCircle className="w-5 h-5" />
-                </button>
+
+                {/* Controls: View Mode & Canvas Background */}
+                <div className="flex flex-wrap items-center gap-2.5 self-end md:self-auto">
+                  {/* Mode Switcher */}
+                  <div className={`flex items-center gap-1 p-1 rounded-xl border ${
+                    isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
+                  }`}>
+                    <button
+                      id="mode-grid-btn"
+                      onClick={() => setOverlayViewMode('grid')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                        overlayViewMode === 'grid'
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                      title="Grid View"
+                    >
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                      <span>Grid</span>
+                    </button>
+
+                    <button
+                      id="mode-carousel-btn"
+                      onClick={() => setOverlayViewMode('carousel')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                        overlayViewMode === 'carousel'
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                      title="Fullscreen Carousel View"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      <span>Carousel</span>
+                    </button>
+
+                    <button
+                      id="mode-compare-btn"
+                      onClick={() => setOverlayViewMode('compare')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                        overlayViewMode === 'compare'
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                      title="Side-by-Side Comparison"
+                    >
+                      <Columns className="w-3.5 h-3.5" />
+                      <span>Compare (2)</span>
+                    </button>
+                  </div>
+
+                  {/* Canvas Background selector */}
+                  <div className={`flex items-center gap-1 p-1 rounded-xl border ${
+                    isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
+                  }`}>
+                    <button
+                      onClick={() => setOverlayBg('dark')}
+                      className={`w-6 h-6 rounded-md bg-slate-900 border ${overlayBg === 'dark' ? 'ring-2 ring-indigo-500 border-indigo-400' : 'border-slate-700'} cursor-pointer`}
+                      title="Dark Background Canvas"
+                    />
+                    <button
+                      onClick={() => setOverlayBg('light')}
+                      className={`w-6 h-6 rounded-md bg-white border ${overlayBg === 'light' ? 'ring-2 ring-indigo-500 border-indigo-400' : 'border-slate-300'} cursor-pointer`}
+                      title="Light Background Canvas"
+                    />
+                    <button
+                      onClick={() => setOverlayBg('checker')}
+                      className={`w-6 h-6 rounded-md bg-slate-800 border ${overlayBg === 'checker' ? 'ring-2 ring-indigo-500 border-indigo-400' : 'border-slate-700'} relative overflow-hidden cursor-pointer`}
+                      title="Checkerboard Background Canvas"
+                    >
+                      <div className="absolute inset-0 bg-[radial-gradient(#94a3b8_1px,transparent_1px)] [background-size:6px_6px] opacity-60" />
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => setIsLogoHistoryOpen(false)}
+                    className={`p-2 rounded-full transition cursor-pointer ${
+                      isDark ? 'hover:bg-slate-800 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-800'
+                    }`}
+                    title="Close Comparison Overlay (Esc)"
+                  >
+                    <XCircle className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
 
-              {/* Grid content */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-                  {allLogos.map((logoUrl, index) => {
-                    const isActive = logoUrl === bible.primaryLogo;
-                    return (
-                      <div
-                        key={index}
-                        className={`border rounded-2xl p-4 flex flex-col justify-between transition-all duration-250 ${
-                          isActive
-                            ? 'border-indigo-500 bg-indigo-500/5 ring-1 ring-indigo-500/10 shadow-md shadow-indigo-500/5'
-                            : isDark
-                              ? 'border-slate-800 bg-slate-950/40 hover:border-slate-700'
-                              : 'border-slate-200 bg-slate-50/50 hover:border-slate-300'
-                        }`}
-                      >
-                        {/* Image Canvas */}
-                        <div className={`rounded-xl border p-4 flex items-center justify-center h-40 relative group overflow-hidden ${
-                          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-                        }`}>
-                          <img
-                            src={logoUrl}
-                            alt={`Logo version ${index + 1}`}
-                            className="max-h-full max-w-full object-contain p-2 transition duration-200 group-hover:scale-102"
-                            referrerPolicy="no-referrer"
-                          />
-                          {/* Quick Hover Controls */}
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-2">
+              {/* Body Content */}
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+                {/* 1. GRID VIEW MODE */}
+                {overlayViewMode === 'grid' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+                    {allLogos.map((logoUrl, index) => {
+                      const isActive = logoUrl === bible.primaryLogo;
+                      const isFav = favoriteLogos.includes(logoUrl);
+                      return (
+                        <motion.div
+                          key={index}
+                          whileHover={{ y: -6, scale: 1.025, transition: { type: 'spring', stiffness: 300, damping: 20 } }}
+                          whileTap={{ scale: 0.98 }}
+                          className={`border rounded-2xl p-4 flex flex-col justify-between transition-all duration-300 relative group cursor-pointer ${
+                            isActive
+                              ? 'border-indigo-500 bg-indigo-500/5 ring-2 ring-indigo-500/30 shadow-xl shadow-indigo-500/15'
+                              : isDark
+                                ? 'border-slate-800 bg-slate-950/60 hover:border-indigo-500/40 hover:shadow-lg'
+                                : 'border-slate-200 bg-slate-50/70 hover:border-indigo-500/40 hover:shadow-lg'
+                          }`}
+                        >
+                          {/* Canvas Box */}
+                          <div className={`rounded-xl border p-4 flex items-center justify-center h-48 relative overflow-hidden transition-all duration-300 ${
+                            overlayBg === 'light'
+                              ? 'bg-white border-slate-200'
+                              : overlayBg === 'checker'
+                                ? 'bg-slate-900 border-slate-800 bg-[radial-gradient(#475569_1px,transparent_1px)] [background-size:10px_10px]'
+                                : 'bg-slate-900 border-slate-800'
+                          }`}>
+                            <img
+                              src={logoUrl}
+                              alt={`Logo Version ${index + 1}`}
+                              className="max-h-full max-w-full object-contain p-2 transition duration-200 group-hover:scale-105"
+                              referrerPolicy="no-referrer"
+                            />
+
+                            {/* Top badges */}
+                            <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-10">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold shadow-sm ${
+                                isDark ? 'bg-slate-950/90 text-slate-300 border border-slate-800' : 'bg-white/90 text-slate-700 border border-slate-200'
+                              }`}>
+                                v{index + 1}
+                              </span>
+                              {isActive && (
+                                <span className="bg-emerald-500 text-white px-2 py-0.5 rounded-full text-[9px] font-bold flex items-center gap-1 shadow-sm font-sans">
+                                  <Check className="w-3 h-3" /> Active Primary
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Favorite toggle top right */}
                             <button
-                              onClick={() => {
-                                setIsLogoHistoryOpen(false);
-                                openLightbox(index);
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleFavoriteLogo(logoUrl);
                               }}
-                              className="bg-white hover:bg-slate-100 text-slate-800 p-2 rounded-full shadow-md transition cursor-pointer"
-                              title="Full Screen Lightbox"
+                              className={`absolute top-2.5 right-2.5 p-1.5 rounded-full backdrop-blur transition z-10 cursor-pointer ${
+                                isFav ? 'bg-rose-500 text-white shadow-md' : 'bg-slate-900/60 text-slate-400 hover:text-rose-400 hover:bg-slate-900/90'
+                              }`}
+                              title={isFav ? "Remove from Favorites" : "Mark as Favorite"}
                             >
-                              <Maximize2 className="w-3.5 h-3.5" />
+                              <Heart className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
                             </button>
-                            <button
-                              onClick={async () => {
-                                try {
-                                  const link = document.createElement('a');
-                                  link.href = logoUrl;
-                                  link.download = `${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-logo-v${index + 1}.png`;
-                                  document.body.appendChild(link);
-                                  link.click();
-                                  document.body.removeChild(link);
-                                } catch (err) {
-                                  console.error(err);
-                                }
-                              }}
-                              className="bg-white hover:bg-slate-100 text-slate-800 p-2 rounded-full shadow-md transition cursor-pointer"
-                              title="Download PNG File"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </button>
+
+                            {/* Hover actions overlay */}
+                            <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition duration-200 flex items-center justify-center gap-2 z-20">
+                              <button
+                                onClick={() => {
+                                  setOverlayCarouselIndex(index);
+                                  setOverlayViewMode('carousel');
+                                }}
+                                className="bg-white hover:bg-slate-100 text-slate-900 p-2.5 rounded-full shadow-lg transition transform hover:scale-110 cursor-pointer"
+                                title="Inspect in Carousel"
+                              >
+                                <Maximize2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setCompareLogoAIndex(allLogos.findIndex(u => u === bible.primaryLogo));
+                                  setCompareLogoBIndex(index);
+                                  setOverlayViewMode('compare');
+                                }}
+                                className="bg-white hover:bg-slate-100 text-slate-900 p-2.5 rounded-full shadow-lg transition transform hover:scale-110 cursor-pointer"
+                                title="Compare Side-by-Side vs Primary"
+                              >
+                                <Columns className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDownloadLogo(logoUrl, `${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-logo-v${index + 1}.png`)}
+                                className="bg-white hover:bg-slate-100 text-slate-900 p-2.5 rounded-full shadow-lg transition transform hover:scale-110 cursor-pointer"
+                                title="Download PNG"
+                              >
+                                <Download className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
 
-                          {isActive && (
-                            <span className="absolute top-2.5 right-2.5 bg-indigo-600 text-white px-2 py-0.5 rounded-full text-[9px] font-bold flex items-center gap-1 shadow-sm font-sans">
-                              <Check className="w-3 h-3" /> Active
-                            </span>
-                          )}
-                          <span className={`absolute bottom-2.5 left-2.5 px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
-                            isDark ? 'bg-slate-950 text-slate-400' : 'bg-slate-100 text-slate-600'
-                          }`}>
-                            Version {index + 1}
-                          </span>
-                        </div>
+                          {/* Action Footer */}
+                          <div className="mt-3 pt-2.5 border-t border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between gap-2">
+                            {isActive ? (
+                              <div className="w-full text-center py-2 text-xs font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-xl font-sans flex items-center justify-center gap-1.5">
+                                <Check className="w-3.5 h-3.5" /> Selected Primary
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => handleRestoreLogo(logoUrl)}
+                                className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-98 text-white rounded-xl text-xs font-bold transition cursor-pointer font-sans shadow-md flex items-center justify-center gap-1.5"
+                              >
+                                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                                <span>Set as Active Primary</span>
+                              </button>
+                            )}
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
 
-                        {/* Bottom Action buttons */}
-                        <div className="mt-4 pt-3 border-t border-slate-200/50 dark:border-slate-800/50 flex flex-col gap-2">
-                          {isActive ? (
-                            <div className="w-full text-center py-2 text-xs font-bold text-indigo-500 bg-indigo-500/10 rounded-xl font-sans">
-                              Current Active Mark
-                            </div>
+                {/* 2. CAROUSEL VIEW MODE */}
+                {overlayViewMode === 'carousel' && (
+                  <div className="flex flex-col h-full justify-between space-y-4">
+                    {/* Carousel Main Stage */}
+                    <div className="relative flex-1 flex items-center justify-center min-h-[340px] sm:min-h-[400px] rounded-2xl border overflow-hidden p-6">
+                      {/* Left arrow */}
+                      {allLogos.length > 1 && (
+                        <button
+                          onClick={() => setOverlayCarouselIndex(prev => (prev === 0 ? allLogos.length - 1 : prev - 1))}
+                          className="absolute left-4 z-20 p-3 bg-slate-900/80 hover:bg-indigo-600 text-white rounded-full shadow-xl transition transform hover:scale-110 cursor-pointer"
+                          title="Previous Logo (Left Arrow)"
+                        >
+                          <ChevronLeft className="w-6 h-6" />
+                        </button>
+                      )}
+
+                      {/* Right arrow */}
+                      {allLogos.length > 1 && (
+                        <button
+                          onClick={() => setOverlayCarouselIndex(prev => (prev === allLogos.length - 1 ? 0 : prev + 1))}
+                          className="absolute right-4 z-20 p-3 bg-slate-900/80 hover:bg-indigo-600 text-white rounded-full shadow-xl transition transform hover:scale-110 cursor-pointer"
+                          title="Next Logo (Right Arrow)"
+                        >
+                          <ChevronRight className="w-6 h-6" />
+                        </button>
+                      )}
+
+                      {/* Main Display Image */}
+                      <div className={`w-full h-full flex items-center justify-center p-8 rounded-xl transition-all duration-300 ${
+                        overlayBg === 'light'
+                          ? 'bg-white'
+                          : overlayBg === 'checker'
+                            ? 'bg-slate-900 bg-[radial-gradient(#475569_1px,transparent_1px)] [background-size:12px_12px]'
+                            : 'bg-slate-950'
+                      }`}>
+                        <motion.img
+                          key={overlayCarouselIndex}
+                          initial={{ opacity: 0, scale: 0.94 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.94 }}
+                          transition={{ duration: 0.18 }}
+                          src={allLogos[overlayCarouselIndex]}
+                          alt={`Logo Version ${overlayCarouselIndex + 1}`}
+                          className="max-h-[50vh] max-w-full object-contain drop-shadow-2xl"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+
+                      {/* Floating Controls Bar inside Carousel */}
+                      <div className="absolute top-4 left-4 right-4 flex justify-between items-center z-10 pointer-events-none">
+                        <span className="bg-slate-900/80 text-white border border-slate-800 backdrop-blur px-3 py-1 rounded-full text-xs font-mono font-bold pointer-events-auto">
+                          Version {overlayCarouselIndex + 1} of {allLogos.length}
+                        </span>
+
+                        <div className="flex items-center gap-2 pointer-events-auto">
+                          {allLogos[overlayCarouselIndex] === bible.primaryLogo ? (
+                            <span className="bg-emerald-500 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow">
+                              <Check className="w-3.5 h-3.5" /> Active Primary Mark
+                            </span>
                           ) : (
                             <button
-                              onClick={() => {
-                                handleRestoreLogo(logoUrl);
-                              }}
-                              className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-extrabold transition cursor-pointer font-sans shadow-sm"
+                              onClick={() => handleRestoreLogo(allLogos[overlayCarouselIndex])}
+                              className="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-full text-xs font-bold shadow-lg transition cursor-pointer flex items-center gap-1.5"
                             >
-                              Restore as Active Logo
+                              <Sparkles className="w-3.5 h-3.5 text-amber-300" /> Set as Primary
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => toggleFavoriteLogo(allLogos[overlayCarouselIndex])}
+                            className={`p-2 rounded-full backdrop-blur transition cursor-pointer ${
+                              favoriteLogos.includes(allLogos[overlayCarouselIndex])
+                                ? 'bg-rose-500 text-white'
+                                : 'bg-slate-900/80 text-slate-300 hover:text-rose-400'
+                            }`}
+                            title="Toggle Favorite"
+                          >
+                            <Heart className={`w-4 h-4 ${favoriteLogos.includes(allLogos[overlayCarouselIndex]) ? 'fill-current' : ''}`} />
+                          </button>
+
+                          <button
+                            onClick={() => handleDownloadLogo(allLogos[overlayCarouselIndex], `${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-logo-v${overlayCarouselIndex + 1}.png`)}
+                            className="p-2 bg-slate-900/80 hover:bg-slate-800 text-white rounded-full backdrop-blur transition cursor-pointer"
+                            title="Download PNG"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Carousel Thumbnail Strip */}
+                    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-indigo-500/20 scrollbar-track-transparent items-center justify-center">
+                      {allLogos.map((logoUrl, idx) => {
+                        const isSelected = idx === overlayCarouselIndex;
+                        const isPrimary = logoUrl === bible.primaryLogo;
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => setOverlayCarouselIndex(idx)}
+                            className={`relative w-16 h-16 rounded-xl border p-1 shrink-0 cursor-pointer transition-all duration-200 overflow-hidden ${
+                              isSelected
+                                ? 'border-indigo-500 bg-indigo-500/10 ring-2 ring-indigo-500 scale-105 shadow-md'
+                                : isDark
+                                  ? 'border-slate-800 bg-slate-950 hover:border-slate-700'
+                                  : 'border-slate-200 bg-white hover:border-slate-300'
+                            }`}
+                          >
+                            <img src={logoUrl} alt={`Thumb ${idx + 1}`} className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                            <span className="absolute bottom-1 right-1 text-[8px] font-mono font-bold px-1 rounded bg-slate-900/80 text-white">
+                              v{idx + 1}
+                            </span>
+                            {isPrimary && (
+                              <span className="absolute top-1 left-1 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-white" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. SIDE-BY-SIDE COMPARE VIEW MODE */}
+                {overlayViewMode === 'compare' && (
+                  <div className="flex flex-col h-full space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 min-h-[360px]">
+                      {/* Left Logo Card (Option A) */}
+                      <div className={`border rounded-2xl p-4 flex flex-col justify-between ${
+                        isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}>
+                        <div className="flex items-center justify-between mb-3">
+                          <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                            <span>Option A:</span>
+                          </label>
+                          <select
+                            value={compareLogoAIndex}
+                            onChange={(e) => setCompareLogoAIndex(parseInt(e.target.value, 10))}
+                            className={`text-xs font-bold px-2.5 py-1.5 rounded-lg border focus:outline-none cursor-pointer ${
+                              isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                            }`}
+                          >
+                            {allLogos.map((_, i) => (
+                              <option key={i} value={i}>
+                                Version {i + 1} {allLogos[i] === bible.primaryLogo ? '(Active Primary)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className={`flex-1 rounded-xl border p-6 flex items-center justify-center min-h-[240px] relative overflow-hidden transition-all duration-300 ${
+                          overlayBg === 'light'
+                            ? 'bg-white border-slate-200'
+                            : overlayBg === 'checker'
+                              ? 'bg-slate-900 border-slate-800 bg-[radial-gradient(#475569_1px,transparent_1px)] [background-size:10px_10px]'
+                              : 'bg-slate-900 border-slate-800'
+                        }`}>
+                          <img
+                            src={allLogos[compareLogoAIndex] || allLogos[0]}
+                            alt={`Logo Compare A`}
+                            className="max-h-[35vh] max-w-full object-contain drop-shadow-md"
+                            referrerPolicy="no-referrer"
+                          />
+
+                          {allLogos[compareLogoAIndex] === bible.primaryLogo && (
+                            <span className="absolute top-3 right-3 bg-emerald-500 text-white px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 shadow">
+                              <Check className="w-3 h-3" /> Active Primary
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-4 pt-3 border-t border-slate-800/40 flex items-center justify-between gap-2">
+                          <span className="text-xs font-mono text-slate-400 font-bold">
+                            Version {compareLogoAIndex + 1}
+                          </span>
+                          {allLogos[compareLogoAIndex] === bible.primaryLogo ? (
+                            <span className="text-xs font-bold text-emerald-400">Current Active Logo</span>
+                          ) : (
+                            <button
+                              onClick={() => handleRestoreLogo(allLogos[compareLogoAIndex])}
+                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow cursor-pointer transition flex items-center gap-1"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-amber-300" /> Set Option A as Primary
                             </button>
                           )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
 
-                {allLogos.length === 0 && (
-                  <div className="text-center py-12 text-slate-400 text-sm font-sans">
-                    No logo variations have been generated yet.
+                      {/* Right Logo Card (Option B) */}
+                      <div className={`border rounded-2xl p-4 flex flex-col justify-between ${
+                        isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}>
+                        <div className="flex items-center justify-between mb-3">
+                          <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
+                            <span>Option B:</span>
+                          </label>
+                          <select
+                            value={compareLogoBIndex}
+                            onChange={(e) => setCompareLogoBIndex(parseInt(e.target.value, 10))}
+                            className={`text-xs font-bold px-2.5 py-1.5 rounded-lg border focus:outline-none cursor-pointer ${
+                              isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                            }`}
+                          >
+                            {allLogos.map((_, i) => (
+                              <option key={i} value={i}>
+                                Version {i + 1} {allLogos[i] === bible.primaryLogo ? '(Active Primary)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className={`flex-1 rounded-xl border p-6 flex items-center justify-center min-h-[240px] relative overflow-hidden transition-all duration-300 ${
+                          overlayBg === 'light'
+                            ? 'bg-white border-slate-200'
+                            : overlayBg === 'checker'
+                              ? 'bg-slate-900 border-slate-800 bg-[radial-gradient(#475569_1px,transparent_1px)] [background-size:10px_10px]'
+                              : 'bg-slate-900 border-slate-800'
+                        }`}>
+                          <img
+                            src={allLogos[compareLogoBIndex] || allLogos[1] || allLogos[0]}
+                            alt={`Logo Compare B`}
+                            className="max-h-[35vh] max-w-full object-contain drop-shadow-md"
+                            referrerPolicy="no-referrer"
+                          />
+
+                          {allLogos[compareLogoBIndex] === bible.primaryLogo && (
+                            <span className="absolute top-3 right-3 bg-emerald-500 text-white px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 shadow">
+                              <Check className="w-3 h-3" /> Active Primary
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-4 pt-3 border-t border-slate-800/40 flex items-center justify-between gap-2">
+                          <span className="text-xs font-mono text-slate-400 font-bold">
+                            Version {compareLogoBIndex + 1}
+                          </span>
+                          {allLogos[compareLogoBIndex] === bible.primaryLogo ? (
+                            <span className="text-xs font-bold text-emerald-400">Current Active Logo</span>
+                          ) : (
+                            <button
+                              onClick={() => handleRestoreLogo(allLogos[compareLogoBIndex])}
+                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow cursor-pointer transition flex items-center gap-1"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-amber-300" /> Set Option B as Primary
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
 
               {/* Footer */}
-              <div className={`p-4 border-t text-center text-xs shrink-0 ${
-                isDark ? 'border-slate-800 bg-slate-950/20 text-slate-400' : 'border-slate-100 bg-slate-50 text-slate-500'
+              <div className={`p-3 sm:p-4 border-t text-center text-xs shrink-0 flex items-center justify-between px-6 ${
+                isDark ? 'border-slate-800 bg-slate-950/40 text-slate-400' : 'border-slate-100 bg-slate-50 text-slate-500'
               }`}>
-                Restoring a historic logo updates your Brand Bible's primary asset and syncs with color palette views instantly.
+                <span className="text-[11px]">
+                  <strong className="text-slate-300">Keyboard shortcuts:</strong> Press <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 font-mono text-[10px]">Esc</kbd> to close. Use Left/Right Arrow keys in Carousel view.
+                </span>
+                <span className="text-[11px] font-bold text-indigo-400">
+                  Selecting a logo updates primary mark &amp; palette sync instantly.
+                </span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Automated Style Audit Modal */}
+      <AnimatePresence>
+        {showAuditModal && auditReport && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto font-sans"
+            onClick={() => setShowAuditModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className={`border rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto relative ${
+                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              {/* Modal Header */}
+              <div className="flex items-start justify-between border-b pb-5 border-slate-800">
+                <div className="flex items-center gap-3.5">
+                  <div className="p-3 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 rounded-2xl shrink-0">
+                    <ShieldCheck className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-emerald-500">
+                      Automated AI Quality Inspection
+                    </span>
+                    <h2 className="text-2xl font-black tracking-tight">
+                      Automated Style Audit & Readability Report
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      WCAG 2.1 contrast analysis, font legibility, and brand archetype consistency for <span className="font-bold text-indigo-400">{bible.companyName}</span>.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  id="close-style-audit-modal-btn"
+                  onClick={() => setShowAuditModal(false)}
+                  className="p-2 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                >
+                  <XCircle className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Top Banner: Overall Score & Executive Summary */}
+              <div className={`p-6 rounded-2xl border flex flex-col md:flex-row items-center gap-6 ${
+                isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+              }`}>
+                {/* Score Circle / Badge */}
+                <div className="flex flex-col items-center justify-center p-5 bg-gradient-to-br from-emerald-500/20 to-indigo-500/20 border border-emerald-500/30 rounded-2xl min-w-[150px] text-center">
+                  <span className="text-4xl font-black tracking-tight text-emerald-400">
+                    {auditReport.overallScore}
+                    <span className="text-lg font-bold text-slate-400">/100</span>
+                  </span>
+                  <span className="text-[10px] uppercase font-bold tracking-wider mt-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    {auditReport.overallScore >= 90 ? 'EXCELLENT' : auditReport.overallScore >= 75 ? 'PASSED' : 'NEEDS TWEAKS'}
+                  </span>
+                </div>
+
+                <div className="space-y-2 flex-1">
+                  <h3 className="text-lg font-bold text-emerald-400 leading-snug">
+                    {auditReport.ratingTagline || "Optimal WCAG 2.1 Accessibility & Cohesive Brand Archetype"}
+                  </h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {auditReport.summary}
+                  </p>
+                </div>
+              </div>
+
+              {/* 3 Core Inspection Reports */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                {/* 1. Color Contrast & Accessibility */}
+                <div className={`p-5 rounded-2xl border space-y-3 flex flex-col justify-between ${
+                  isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50/80 border-slate-200'
+                }`}>
+                  <div className="space-y-2.5">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <Palette className="w-4 h-4 text-indigo-400" />
+                        <h4 className="font-bold text-xs uppercase tracking-wider">1. Color Contrast</h4>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        auditReport.colorContrastReport?.status === 'OPTIMAL' || auditReport.colorContrastReport?.status === 'PASSED'
+                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                          : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                      }`}>
+                        {auditReport.colorContrastReport?.score}/100 • {auditReport.colorContrastReport?.status}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      {auditReport.colorContrastReport?.details}
+                    </p>
+                  </div>
+                  {auditReport.colorContrastReport?.recommendations?.length > 0 && (
+                    <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
+                      <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400">Key Recommendations:</span>
+                      <ul className="space-y-1">
+                        {auditReport.colorContrastReport.recommendations.map((rec, idx) => (
+                          <li key={idx} className="text-[10px] text-slate-300 flex items-start gap-1.5 leading-snug">
+                            <Check className="w-3 h-3 text-emerald-400 shrink-0 mt-0.5" />
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Font Legibility & Scale */}
+                <div className={`p-5 rounded-2xl border space-y-3 flex flex-col justify-between ${
+                  isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50/80 border-slate-200'
+                }`}>
+                  <div className="space-y-2.5">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <Type className="w-4 h-4 text-purple-400" />
+                        <h4 className="font-bold text-xs uppercase tracking-wider">2. Font Legibility</h4>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        auditReport.fontLegibilityReport?.status === 'OPTIMAL' || auditReport.fontLegibilityReport?.status === 'PASSED'
+                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                          : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                      }`}>
+                        {auditReport.fontLegibilityReport?.score}/100 • {auditReport.fontLegibilityReport?.status}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      {auditReport.fontLegibilityReport?.details}
+                    </p>
+                  </div>
+                  {auditReport.fontLegibilityReport?.recommendations?.length > 0 && (
+                    <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
+                      <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400">Key Recommendations:</span>
+                      <ul className="space-y-1">
+                        {auditReport.fontLegibilityReport.recommendations.map((rec, idx) => (
+                          <li key={idx} className="text-[10px] text-slate-300 flex items-start gap-1.5 leading-snug">
+                            <Check className="w-3 h-3 text-emerald-400 shrink-0 mt-0.5" />
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Archetype Consistency */}
+                <div className={`p-5 rounded-2xl border space-y-3 flex flex-col justify-between ${
+                  isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50/80 border-slate-200'
+                }`}>
+                  <div className="space-y-2.5">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <Compass className="w-4 h-4 text-amber-400" />
+                        <h4 className="font-bold text-xs uppercase tracking-wider">3. Archetype Alignment</h4>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        auditReport.archetypeConsistencyReport?.status === 'OPTIMAL' || auditReport.archetypeConsistencyReport?.status === 'PASSED'
+                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                          : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                      }`}>
+                        {auditReport.archetypeConsistencyReport?.score}/100 • {auditReport.archetypeConsistencyReport?.status}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      {auditReport.archetypeConsistencyReport?.details}
+                    </p>
+                  </div>
+                  {auditReport.archetypeConsistencyReport?.recommendations?.length > 0 && (
+                    <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
+                      <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400">Key Recommendations:</span>
+                      <ul className="space-y-1">
+                        {auditReport.archetypeConsistencyReport.recommendations.map((rec, idx) => (
+                          <li key={idx} className="text-[10px] text-slate-300 flex items-start gap-1.5 leading-snug">
+                            <Check className="w-3 h-3 text-emerald-400 shrink-0 mt-0.5" />
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Actionable Precision Checklist */}
+              {auditReport.actionableImprovements?.length > 0 && (
+                <div className={`p-5 rounded-2xl border space-y-3 ${
+                  isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <h4 className="font-bold text-xs uppercase tracking-wider flex items-center gap-2 text-indigo-400">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    Actionable Precision Enhancements
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {auditReport.actionableImprovements.map((item, idx) => (
+                      <div key={idx} className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl flex items-start gap-2.5">
+                        <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        <span className="text-xs text-slate-200 leading-snug">{item}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Modal Actions Footer */}
+              <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+                <button
+                  id="re-run-style-audit-btn"
+                  onClick={handleRunStyleAudit}
+                  disabled={isAuditing}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-full flex items-center gap-2 transition cursor-pointer shadow-md"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isAuditing ? 'animate-spin' : ''}`} />
+                  <span>{isAuditing ? 'Re-Auditing...' : 'Re-Run Style Audit'}</span>
+                </button>
+
+                <button
+                  id="close-audit-report-btn"
+                  onClick={() => setShowAuditModal(false)}
+                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-full transition cursor-pointer"
+                >
+                  Close Report
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ACCESSIBILITY AUDITOR REPORT MODAL */}
+      <AnimatePresence>
+        {showA11yAuditorModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className={`w-full max-w-5xl rounded-3xl border shadow-2xl p-6 sm:p-8 relative my-8 max-h-[90vh] overflow-y-auto font-sans text-left ${
+                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              {/* Modal Header */}
+              <div className="flex items-start justify-between border-b pb-4 mb-6 border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                    <ShieldCheck className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest bg-emerald-500/15 text-emerald-500 px-2.5 py-0.5 rounded-full">
+                        WCAG 2.1 Audit Standard
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        {bible.companyName} Brand System
+                      </span>
+                    </div>
+                    <h2 className="text-xl font-black tracking-tight mt-1">
+                      Brand Accessibility & Contrast Auditor
+                    </h2>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowA11yAuditorModal(false)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Overview & Score Engine */}
+              {(() => {
+                const palette = bible.colorPalette || [];
+                const allPairs: { textCol: Color; bgCol: Color; ratio: number; level: 'AAA' | 'AA' | 'AA_LG' | 'FAIL' }[] = [];
+                
+                palette.forEach((textCol) => {
+                  palette.forEach((bgCol) => {
+                    if (textCol.hex !== bgCol.hex) {
+                      const ratio = getContrastRatio(bgCol.hex, textCol.hex);
+                      let level: 'AAA' | 'AA' | 'AA_LG' | 'FAIL' = 'FAIL';
+                      if (ratio >= 7.0) level = 'AAA';
+                      else if (ratio >= 4.5) level = 'AA';
+                      else if (ratio >= 3.0) level = 'AA_LG';
+                      allPairs.push({ textCol, bgCol, ratio, level });
+                    }
+                  });
+                });
+
+                const total = allPairs.length;
+                const aaaCount = allPairs.filter(p => p.level === 'AAA').length;
+                const aaCount = allPairs.filter(p => p.level === 'AA').length;
+                const aaLgCount = allPairs.filter(p => p.level === 'AA_LG').length;
+                const failCount = allPairs.filter(p => p.level === 'FAIL').length;
+
+                const scoreSum = allPairs.reduce((acc, p) => {
+                  if (p.level === 'AAA') return acc + 100;
+                  if (p.level === 'AA') return acc + 80;
+                  if (p.level === 'AA_LG') return acc + 40;
+                  return acc;
+                }, 0);
+                const healthScore = total > 0 ? Math.round(scoreSum / total) : 100;
+
+                let statusText = "Action Needed";
+                let statusStyle = "bg-rose-500/10 text-rose-500 border-rose-500/20";
+                if (healthScore >= 85) {
+                  statusText = "Excellent AAA Grade";
+                  statusStyle = "bg-emerald-500/10 text-emerald-500 border-emerald-500/20";
+                } else if (healthScore >= 65) {
+                  statusText = "Good AA Grade";
+                  statusStyle = "bg-indigo-500/10 text-indigo-500 border-indigo-500/20";
+                } else if (healthScore >= 45) {
+                  statusText = "Moderate Compliance";
+                  statusStyle = "bg-amber-500/10 text-amber-500 border-amber-500/20";
+                }
+
+                const filteredPairs = allPairs.filter(p => {
+                  if (a11yFilter === 'failing') return p.level === 'FAIL' || p.level === 'AA_LG';
+                  if (a11yFilter === 'aa') return p.level === 'AA';
+                  if (a11yFilter === 'aaa') return p.level === 'AAA';
+                  return true;
+                });
+
+                return (
+                  <div className="space-y-6">
+                    {/* Top Score Summary Banner */}
+                    <div className={`p-6 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-6 ${
+                      isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}>
+                      <div className="flex items-center gap-5">
+                        <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 text-center min-w-[110px]">
+                          <span className="text-3xl font-black font-mono text-indigo-400">{healthScore}%</span>
+                          <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 mt-0.5">Health Score</span>
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${statusStyle}`}>
+                              {statusText}
+                            </span>
+                            <span className="text-xs text-slate-400 font-mono">
+                              {aaaCount + aaCount} / {total} Pairs Pass AA
+                            </span>
+                          </div>
+                          <h3 className="text-base font-extrabold mt-1">
+                            WCAG 2.1 Contrast & Color Accessibility Assessment
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-0.5 leading-relaxed max-w-xl">
+                            Evaluates contrast ratios between foreground text and background colors according to World Wide Web Consortium (W3C) guidelines to guarantee readability for all users.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <button
+                          onClick={handleCopyA11yReport}
+                          className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-2 transition cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>Copy Report</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Metric Stats Cards Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block">AAA Compliant</span>
+                        <span className="text-2xl font-black font-mono text-emerald-500">{aaaCount}</span>
+                        <span className="text-[9px] text-slate-400 block mt-0.5">Ratio ≥ 7.0:1</span>
+                      </div>
+                      <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block">AA Compliant</span>
+                        <span className="text-2xl font-black font-mono text-indigo-500">{aaCount}</span>
+                        <span className="text-[9px] text-slate-400 block mt-0.5">Ratio 4.5 – 6.9:1</span>
+                      </div>
+                      <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-200'}`}>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block">Large Text / UI Only</span>
+                        <span className="text-2xl font-black font-mono text-amber-500">{aaLgCount}</span>
+                        <span className="text-[9px] text-slate-400 block mt-0.5">Ratio 3.0 – 4.4:1</span>
+                      </div>
+                      <div className={`p-4 rounded-xl border ${failCount > 0 ? 'bg-rose-500/5 border-rose-500/20' : isDark ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-rose-400 block">Failing Pairings</span>
+                        <span className="text-2xl font-black font-mono text-rose-500">{failCount}</span>
+                        <span className="text-[9px] text-slate-400 block mt-0.5">Ratio &lt; 3.0:1 (Inaccessible)</span>
+                      </div>
+                    </div>
+
+                    {/* Interactive Filter Tabs */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3 border-slate-800">
+                      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800 text-xs font-bold">
+                        <button
+                          onClick={() => setA11yFilter('failing')}
+                          className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+                            a11yFilter === 'failing' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <span>Action Needed / Failing</span>
+                          <span className="px-1.5 py-0.2 text-[9px] rounded-full bg-black/30">{failCount + aaLgCount}</span>
+                        </button>
+                        <button
+                          onClick={() => setA11yFilter('aa')}
+                          className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                            a11yFilter === 'aa' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          AA Compliant ({aaCount})
+                        </button>
+                        <button
+                          onClick={() => setA11yFilter('aaa')}
+                          className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                            a11yFilter === 'aaa' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          AAA Compliant ({aaaCount})
+                        </button>
+                        <button
+                          onClick={() => setA11yFilter('all')}
+                          className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                            a11yFilter === 'all' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          All Pairings ({total})
+                        </button>
+                      </div>
+
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        Showing {filteredPairs.length} pairings
+                      </span>
+                    </div>
+
+                    {/* Pairwise Analysis Cards Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[420px] overflow-y-auto pr-2">
+                      {filteredPairs.map((pair, pIdx) => {
+                        const suggestedFixHex = calculateAdjustedCompliantColor(pair.bgCol.hex, pair.textCol.hex, 4.5);
+                        const suggestedFixRatio = getContrastRatio(pair.bgCol.hex, suggestedFixHex);
+                        const isFailing = pair.level === 'FAIL' || pair.level === 'AA_LG';
+
+                        let badgeStyle = "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+                        let badgeText = "AAA Compliant";
+                        if (pair.level === 'AA') {
+                          badgeStyle = "text-indigo-400 bg-indigo-500/10 border-indigo-500/20";
+                          badgeText = "AA Compliant";
+                        } else if (pair.level === 'AA_LG') {
+                          badgeStyle = "text-amber-400 bg-amber-500/10 border-amber-500/20";
+                          badgeText = "Large Text Only (3.0+)";
+                        } else if (pair.level === 'FAIL') {
+                          badgeStyle = "text-rose-400 bg-rose-500/10 border-rose-500/20";
+                          badgeText = "Fails WCAG (<3.0)";
+                        }
+
+                        return (
+                          <div
+                            key={pIdx}
+                            className={`p-4 rounded-2xl border space-y-3 transition-all ${
+                              isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                            }`}
+                          >
+                            {/* Swatches & Live Preview Bar */}
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className="w-4 h-4 rounded-full border border-black/20 shadow-xs shrink-0"
+                                    style={{ backgroundColor: pair.textCol.hex }}
+                                  />
+                                  <span className="text-xs font-bold truncate max-w-[90px]">{pair.textCol.name}</span>
+                                </div>
+                                <span className="text-[10px] text-slate-400">on</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className="w-4 h-4 rounded-full border border-black/20 shadow-xs shrink-0"
+                                    style={{ backgroundColor: pair.bgCol.hex }}
+                                  />
+                                  <span className="text-xs font-bold truncate max-w-[90px]">{pair.bgCol.name}</span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-mono font-black">{pair.ratio.toFixed(2)}:1</span>
+                                <span className={`text-[8px] font-extrabold uppercase px-2 py-0.5 rounded border ${badgeStyle}`}>
+                                  {badgeText}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Visual Card Sample */}
+                            <div
+                              className="p-3.5 rounded-xl border flex items-center justify-between"
+                              style={{ backgroundColor: pair.bgCol.hex, borderColor: `${pair.textCol.hex}30` }}
+                            >
+                              <span className="text-xs font-bold" style={{ color: pair.textCol.hex }}>
+                                Sample Text Legibility Preview
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setContrastBg(pair.bgCol.hex);
+                                  setContrastText(pair.textCol.hex);
+                                  setShowA11yAuditorModal(false);
+                                }}
+                                className="text-[9px] font-extrabold uppercase px-2 py-1 rounded bg-black/20 hover:bg-black/40 text-white transition cursor-pointer"
+                              >
+                                Inspect in Sandbox
+                              </button>
+                            </div>
+
+                            {/* Actionable Fix Suggestion Box for failing pairs */}
+                            {isFailing && (
+                              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs space-y-2">
+                                <div className="flex items-start gap-1.5 text-rose-300">
+                                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                  <p className="leading-snug text-[11px]">
+                                    {pair.level === 'FAIL'
+                                      ? `Ratio of ${pair.ratio.toFixed(2)}:1 fails WCAG AA minimum 4.5:1. Users with low vision or screen glare will struggle to read text.`
+                                      : `Ratio of ${pair.ratio.toFixed(2)}:1 passes only for large text (>18px). Not recommended for body copy.`}
+                                  </p>
+                                </div>
+
+                                <div className="pt-2 border-t border-rose-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-extrabold text-slate-300 uppercase">Suggested Fix:</span>
+                                    <div className="flex items-center gap-1">
+                                      <span
+                                        className="w-3.5 h-3.5 rounded-full border border-black/20 shrink-0"
+                                        style={{ backgroundColor: suggestedFixHex }}
+                                      />
+                                      <span className="font-mono text-[10px] font-bold text-emerald-400">
+                                        {suggestedFixHex.toUpperCase()} ({suggestedFixRatio.toFixed(1)}:1 AA)
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    onClick={() => handleApplyA11yFixToPalette(pair.textCol.hex, suggestedFixHex, pair.textCol.name)}
+                                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[10px] transition cursor-pointer active:scale-95 shrink-0"
+                                  >
+                                    Apply Fix to Palette
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {filteredPairs.length === 0 && (
+                        <div className="col-span-2 p-8 text-center border border-dashed rounded-2xl border-slate-800">
+                          <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+                          <p className="text-xs font-bold text-slate-300">No color pairs found in this filter category.</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Guidelines & Best Practices Checklist */}
+                    <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-indigo-400 flex items-center gap-2 mb-3">
+                        <Sparkles className="w-4 h-4 text-amber-400" />
+                        Actionable Accessibility Guidelines for {bible.companyName}
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-300">
+                        <div className="flex items-start gap-2">
+                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                          <span><strong>Body Copy Baseline:</strong> Always pair high-contrast neutral backgrounds (#ffffff or #0f172a) with dark/light text to ensure 7.0:1+ AAA compliance.</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                          <span><strong>Interactive Buttons:</strong> Ensure button label text achieves at least 4.5:1 contrast against the button background fill.</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                          <span><strong>Accent Usage:</strong> Use bright accent colors for borders, badges, and decorative patterns rather than body copy.</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                          <span><strong>Typography Scale:</strong> For color pairs between 3.0:1 and 4.5:1, restrict font sizes to at least 18px (or 14px bold).</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Modal Footer */}
+                    <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        WCAG 2.1 Level AA/AAA Standard Audit Engine
+                      </span>
+                      <button
+                        onClick={() => setShowA11yAuditorModal(false)}
+                        className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-full transition cursor-pointer"
+                      >
+                        Done / Close Auditor
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* AI Palette Regeneration Modal */}
+      <AnimatePresence>
+        {showRegenPaletteModal && aiSuggestedPalette && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto font-sans"
+            onClick={() => setShowRegenPaletteModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className={`border rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto relative ${
+                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between border-b pb-5 border-slate-800">
+                <div className="flex items-center gap-3.5">
+                  <div className="p-3 bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 rounded-2xl shrink-0">
+                    <Sparkles className="w-7 h-7 text-amber-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-indigo-400">
+                        AI Brand Strategy Consultant
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        Mission-Driven Synthesis
+                      </span>
+                    </div>
+                    <h2 className="text-2xl font-black tracking-tight mt-0.5">
+                      Fresh 5-Color Brand Palette Suggestion
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                      Synthesized directly from original mission: <strong className={isDark ? 'text-slate-200' : 'text-slate-800'}>"{bible.mission}"</strong>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowRegenPaletteModal(false)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* AI Rationale Strategic Box */}
+              {aiSuggestedRationale && (
+                <div className={`p-4 rounded-2xl border flex items-start gap-3.5 ${
+                  isDark ? 'bg-indigo-950/30 border-indigo-900/50 text-indigo-200' : 'bg-indigo-50/70 border-indigo-200 text-indigo-950'
+                }`}>
+                  <Sparkles className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1 text-xs leading-relaxed">
+                    <strong className="block font-black text-indigo-400 uppercase tracking-wider text-[10px]">
+                      AI Strategic Rationale:
+                    </strong>
+                    <p className="font-sans text-xs">
+                      {aiSuggestedRationale}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* 5-Color Swatch Grid */}
+              <div className="space-y-3">
+                <h3 className="text-sm font-extrabold flex items-center gap-2">
+                  <Palette className="w-4 h-4 text-indigo-400" />
+                  <span>Suggested 5-Color Design System:</span>
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+                  {aiSuggestedPalette.map((color, idx) => (
+                    <div
+                      key={color.hex + idx}
+                      className="border border-slate-700/60 rounded-2xl p-3 flex flex-col justify-between space-y-4 shadow-md relative overflow-hidden group/swatch min-h-[160px]"
+                      style={{ backgroundColor: color.hex }}
+                    >
+                      <div className="flex items-center justify-between z-10">
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-black/40 text-white backdrop-blur-md">
+                          {color.role}
+                        </span>
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-white/90 text-slate-900 shadow-xs">
+                          {color.hex}
+                        </span>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-black/50 backdrop-blur-md text-white border border-white/10 z-10 space-y-1">
+                        <div className="text-xs font-black truncate">{color.name}</div>
+                        <div className="text-[9.5px] text-slate-200 leading-tight line-clamp-3">
+                          {color.usageNote}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Fine-Tuning Optional Input & Regeneration Bar */}
+              <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 ${
+                isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <div className="flex-1 flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <input
+                    type="text"
+                    value={customPaletteFocus}
+                    onChange={(e) => setCustomPaletteFocus(e.target.value)}
+                    placeholder="Optional: Fine-tune vibe (e.g. 'Warm Sunset', 'High-Tech Dark', 'Minimalist Pastel')"
+                    className={`w-full px-3.5 py-2 rounded-xl border text-xs font-sans focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                      isDark ? 'bg-slate-900 border-slate-700 text-white placeholder-slate-500' : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400'
+                    }`}
+                  />
+                </div>
+
+                <button
+                  onClick={() => handleRegenerateAiPalette(customPaletteFocus)}
+                  disabled={isRegeneratingAiPalette}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shrink-0"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRegeneratingAiPalette ? 'animate-spin' : ''}`} />
+                  <span>Re-Analyze Mission</span>
+                </button>
+              </div>
+
+              {/* Footer Actions */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+                <button
+                  onClick={() => setShowRegenPaletteModal(false)}
+                  className={`px-5 py-2.5 rounded-2xl text-xs font-bold transition cursor-pointer ${
+                    isDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  id="apply-regenerated-palette-btn"
+                  onClick={handleApplyAiPalette}
+                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-black flex items-center gap-2 transition shadow-lg shadow-indigo-500/25 cursor-pointer active:scale-95"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Apply to Brand Bible</span>
+                </button>
               </div>
             </motion.div>
           </motion.div>

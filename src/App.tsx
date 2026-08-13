@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BrandBible } from './types';
 import { safeFetchJson } from './utils/api';
+import { SAMPLE_BRAND_BIBLES } from './utils/sampleData';
+import { decodeBrandBibleFromHash } from './utils/share';
 import BrandConfigForm from './components/BrandConfigForm';
 import BrandBibleDashboard from './components/BrandBibleDashboard';
 import BrandMockups from './components/BrandMockups';
 import ConsultantChat from './components/ConsultantChat';
-import { Sparkles, Layers, BookOpen, Clock, AlertCircle, Trash2, Check, RefreshCw, FileText, Monitor, Briefcase, Sun, Moon } from 'lucide-react';
+import { Sparkles, Layers, BookOpen, Clock, AlertCircle, Trash2, Check, RefreshCw, FileText, Monitor, Briefcase, Sun, Moon, Palette, Type, Compass, Zap, Plus } from 'lucide-react';
 
 export default function App() {
   const [activeBible, setActiveBible] = useState<BrandBible | null>(null);
@@ -34,21 +36,75 @@ export default function App() {
     }
   }, [isDark]);
 
-  // Load saved bibles from LocalStorage on mount
+  // Load saved bibles from LocalStorage & URL hash on mount
   useEffect(() => {
+    let localBibles: BrandBible[] = [];
     try {
       const stored = localStorage.getItem('brand_bibles_history');
       if (stored) {
-        const parsed = JSON.parse(stored) as BrandBible[];
-        setSavedBibles(parsed);
-        if (parsed.length > 0) {
-          setActiveBible(parsed[0]);
-        }
+        localBibles = JSON.parse(stored) as BrandBible[];
+        setSavedBibles(localBibles);
       }
     } catch (err) {
       console.error("Error reading saved brand bibles from local storage:", err);
     }
+
+    const parseAndSelectFromHash = () => {
+      const hash = window.location.hash;
+      if (!hash) {
+        if (localBibles.length > 0) {
+          setActiveBible(prev => prev || localBibles[0]);
+        }
+        return;
+      }
+
+      // 1. Encoded brand bible in hash: #share=...
+      if (hash.includes('share=')) {
+        const rawData = hash.split('share=')[1];
+        if (rawData) {
+          const decoded = decodeBrandBibleFromHash(rawData);
+          if (decoded) {
+            saveBibleToStorage(decoded);
+            setActiveBible(decoded);
+            return;
+          }
+        }
+      }
+
+      // 2. Direct ID in hash: #brand=xyz or #xyz
+      const cleanHash = hash.replace(/^#/, '');
+      const idMatch = cleanHash.startsWith('brand=') ? cleanHash.replace('brand=', '') : cleanHash;
+      if (idMatch) {
+        const foundInSaved = localBibles.find(b => b.id === idMatch);
+        if (foundInSaved) {
+          setActiveBible(foundInSaved);
+          return;
+        }
+        const foundInSample = SAMPLE_BRAND_BIBLES.find(b => b.id === idMatch);
+        if (foundInSample) {
+          setActiveBible(foundInSample);
+          return;
+        }
+      }
+
+      // Fallback
+      if (localBibles.length > 0) {
+        setActiveBible(prev => prev || localBibles[0]);
+      }
+    };
+
+    parseAndSelectFromHash();
+
+    window.addEventListener('hashchange', parseAndSelectFromHash);
+    return () => window.removeEventListener('hashchange', parseAndSelectFromHash);
   }, []);
+
+  // Sync current active brand ID to URL hash when selected
+  useEffect(() => {
+    if (activeBible?.id && !window.location.hash.includes('share=')) {
+      window.history.replaceState(null, '', `#brand=${activeBible.id}`);
+    }
+  }, [activeBible?.id]);
 
   // Sync active typography font sheets dynamically to document head
   useEffect(() => {
@@ -275,11 +331,25 @@ export default function App() {
           <div className={`mb-8 border rounded-3xl p-6 shadow-sm font-sans transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
           }`}>
-            <div className={`flex items-center gap-2 text-xs font-black mb-4 px-1 ${
-              isDark ? 'text-slate-400' : 'text-slate-500'
-            }`}>
-              <Clock className="w-4 h-4 text-indigo-600" />
-              <span className="uppercase tracking-wider">Your Saved Brand Identities ({savedBibles.length})</span>
+            <div className="flex justify-between items-center mb-4 px-1">
+              <div className={`flex items-center gap-2 text-xs font-black ${
+                isDark ? 'text-slate-400' : 'text-slate-500'
+              }`}>
+                <Clock className="w-4 h-4 text-indigo-600" />
+                <span className="uppercase tracking-wider">Your Saved Brand Identities ({savedBibles.length})</span>
+              </div>
+              <button
+                id="create-new-brand-btn"
+                type="button"
+                onClick={() => {
+                  setActiveBible(null);
+                  setError(null);
+                }}
+                className="text-xs px-3 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New Brand</span>
+              </button>
             </div>
             <div className="flex flex-wrap gap-3">
               {savedBibles.map((bible) => (
@@ -420,6 +490,13 @@ export default function App() {
                           };
                           saveBibleToStorage(updated);
                         }}
+                        onUpdateVoice={(newVoice) => {
+                          const updated = {
+                            ...activeBible,
+                            brandVoice: newVoice
+                          };
+                          saveBibleToStorage(updated);
+                        }}
                         isLoadingLogo={isLoadingLogo}
                         onRegenerateLogo={handleRegenerateLogo}
                         logoSize={logoSize}
@@ -441,42 +518,94 @@ export default function App() {
               </div>
             ) : (
               /* Welcome Placeholder Screen */
-              <div className={`border rounded-3xl p-10 text-center flex flex-col justify-center items-center min-h-[480px] font-sans shadow-sm transition-all duration-300 ${
+              <div className={`border rounded-3xl p-8 sm:p-10 text-center flex flex-col justify-center items-center min-h-[480px] font-sans shadow-sm relative overflow-hidden transition-all duration-300 ${
                 isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
               }`}>
-                <div className={`h-16 w-16 rounded-2xl flex items-center justify-center mb-6 shadow-sm border ${
-                  isDark ? 'bg-slate-850 text-indigo-400 border-slate-700' : 'bg-indigo-50 text-indigo-600 border-indigo-100'
+                {/* Subtle decorative glow element */}
+                <div className={`absolute -top-24 -right-24 w-60 h-60 rounded-full blur-3xl pointer-events-none opacity-40 ${
+                  isDark ? 'bg-indigo-900/40' : 'bg-indigo-100/80'
+                }`} />
+                <div className={`absolute -bottom-24 -left-24 w-60 h-60 rounded-full blur-3xl pointer-events-none opacity-40 ${
+                  isDark ? 'bg-purple-900/30' : 'bg-purple-100/60'
+                }`} />
+
+                <div className={`h-16 w-16 rounded-2xl flex items-center justify-center mb-5 shadow-md border transition-transform duration-300 hover:scale-105 ${
+                  isDark ? 'bg-slate-850 text-indigo-400 border-slate-700 shadow-indigo-950/20' : 'bg-indigo-50 text-indigo-600 border-indigo-100 shadow-indigo-100'
                 }`}>
                   <BookOpen className="w-8 h-8" />
                 </div>
-                <h2 className={`text-xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>Your Brand Bible Sandbox</h2>
-                <p className={`text-xs mt-2 max-w-sm leading-relaxed font-medium ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
-                  Submit your company mission on the left to synthesize color systems, typographic pair scales, brand specifications, and interactive mockups.
+
+                <h2 className={`text-xl sm:text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Your Brand Identity Sandbox
+                </h2>
+                <p className={`text-xs mt-2 max-w-md leading-relaxed font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Submit your company mission on the left to synthesize color systems, typographic pair scales, brand archetypes, and interactive mockups.
                 </p>
+
+                {/* Instant Sample Loader Triggers */}
+                <div className="mt-6 w-full max-w-md">
+                  <span className={`text-[10px] uppercase tracking-widest font-extrabold block mb-2.5 ${
+                    isDark ? 'text-slate-400' : 'text-slate-400'
+                  }`}>
+                    Or test immediately with a pre-crafted sample brand:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {SAMPLE_BRAND_BIBLES.map((sample) => (
+                      <button
+                        id={`load-sample-btn-${sample.id}`}
+                        key={sample.id}
+                        type="button"
+                        onClick={() => {
+                          saveBibleToStorage(sample);
+                          setError(null);
+                        }}
+                        className={`p-3 border rounded-2xl text-left transition-all duration-200 cursor-pointer flex items-center gap-3 group ${
+                          isDark
+                            ? 'bg-slate-950/80 border-slate-800 hover:border-indigo-500/50 hover:bg-slate-850 text-slate-200'
+                            : 'bg-slate-50/80 border-slate-200/80 hover:border-indigo-300 hover:bg-indigo-50/30 text-slate-800'
+                        }`}
+                      >
+                        <div className="h-8 w-8 rounded-xl bg-indigo-600/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                          <Zap className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                            {sample.companyName}
+                          </div>
+                          <div className="text-[10px] text-slate-400 truncate">
+                            {sample.industry}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Feature Highlights Grid */}
                 <div className="mt-8 grid grid-cols-2 gap-3 w-full max-w-md text-left text-[11px] font-sans">
-                  <div className={`p-4 border rounded-2xl flex items-start gap-2.5 transition-all duration-300 ${
-                    isDark ? 'bg-slate-950 border-slate-800/80 text-slate-300' : 'bg-slate-50 border-slate-100 text-slate-500'
+                  <div className={`p-3.5 border rounded-2xl flex items-center gap-2.5 transition-all duration-300 ${
+                    isDark ? 'bg-slate-950/60 border-slate-800/80 text-slate-300' : 'bg-slate-50/60 border-slate-100 text-slate-600'
                   }`}>
-                    <span className="text-indigo-600 font-black">&bull;</span>
-                    <span className="font-medium">5-Color palette with detailed application directives</span>
+                    <Palette className="w-4 h-4 text-indigo-500 shrink-0" />
+                    <span className="font-semibold text-[11px]">5-Color cohesive palette & roles</span>
                   </div>
-                  <div className={`p-4 border rounded-2xl flex items-start gap-2.5 transition-all duration-300 ${
-                    isDark ? 'bg-slate-950 border-slate-800/80 text-slate-300' : 'bg-slate-50 border-slate-100 text-slate-500'
+                  <div className={`p-3.5 border rounded-2xl flex items-center gap-2.5 transition-all duration-300 ${
+                    isDark ? 'bg-slate-950/60 border-slate-800/80 text-slate-300' : 'bg-slate-50/60 border-slate-100 text-slate-600'
                   }`}>
-                    <span className="text-indigo-600 font-black">&bull;</span>
-                    <span className="font-medium">Suggested live loading Google Fonts pairings</span>
+                    <Type className="w-4 h-4 text-indigo-500 shrink-0" />
+                    <span className="font-semibold text-[11px]">Google Fonts typographic pairing</span>
                   </div>
-                  <div className={`p-4 border rounded-2xl flex items-start gap-2.5 transition-all duration-300 ${
-                    isDark ? 'bg-slate-950 border-slate-800/80 text-slate-300' : 'bg-slate-50 border-slate-100 text-slate-500'
+                  <div className={`p-3.5 border rounded-2xl flex items-center gap-2.5 transition-all duration-300 ${
+                    isDark ? 'bg-slate-950/60 border-slate-800/80 text-slate-300' : 'bg-slate-50/60 border-slate-100 text-slate-600'
                   }`}>
-                    <span className="text-indigo-600 font-black">&bull;</span>
-                    <span className="font-medium">Automated logo synthesis (gemini-3-pro-image-preview)</span>
+                    <Sparkles className="w-4 h-4 text-indigo-500 shrink-0" />
+                    <span className="font-semibold text-[11px]">Vector & AI Image Logo synthesis</span>
                   </div>
-                  <div className={`p-4 border rounded-2xl flex items-start gap-2.5 transition-all duration-300 ${
-                    isDark ? 'bg-slate-950 border-slate-800/80 text-slate-300' : 'bg-slate-50 border-slate-100 text-slate-500'
+                  <div className={`p-3.5 border rounded-2xl flex items-center gap-2.5 transition-all duration-300 ${
+                    isDark ? 'bg-slate-950/60 border-slate-800/80 text-slate-300' : 'bg-slate-50/60 border-slate-100 text-slate-600'
                   }`}>
-                    <span className="text-indigo-600 font-black">&bull;</span>
-                    <span className="font-medium">Interactive web and physical product mockups</span>
+                    <Monitor className="w-4 h-4 text-indigo-500 shrink-0" />
+                    <span className="font-semibold text-[11px]">Interactive product & web mockups</span>
                   </div>
                 </div>
               </div>
@@ -485,7 +614,21 @@ export default function App() {
 
           {/* Column C: AI Brand Consultant Drawer (Takes up 3 cols) */}
           <div className="lg:col-span-3">
-            <ConsultantChat brandBible={activeBible} isDark={isDark} />
+            <ConsultantChat
+              brandBible={activeBible}
+              onUpdatePalette={(newPalette) => {
+                if (!activeBible) return;
+                const updated = {
+                  ...activeBible,
+                  colorPalette: newPalette
+                };
+                saveBibleToStorage(updated);
+              }}
+              onUpdateBrandBible={(newBible) => {
+                saveBibleToStorage(newBible);
+              }}
+              isDark={isDark}
+            />
           </div>
 
         </div>
