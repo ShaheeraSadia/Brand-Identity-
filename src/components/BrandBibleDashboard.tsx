@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { jsPDF } from 'jspdf';
+import { downloadBrandPdf, previewBrandPdfInNewTab, PdfExportOptions } from '../utils/brandPdfGenerator';
+import { PdfExportModal } from './PdfExportModal';
+import { ShareLinkModal } from './ShareLinkModal';
 import html2canvas from 'html2canvas';
 import * as htmlToImage from 'html-to-image';
 import { BrandBible, Color, BrandArchetype, BrandPattern, BrandFavicon, VoiceMetric, BrandVoice, StyleAuditReport } from '../types';
 import { safeFetchJson } from '../utils/api';
 import { generateShareableUrl, encodeBrandBibleToHash } from '../utils/share';
 import { generatePatternSvg, generatePatternDataUrl, BRAND_PATTERN_TEMPLATES, PatternType, extractBrandColors } from '../utils/patternGenerator';
+import { SocialBannersSection } from './SocialBannersSection';
+import { BrandVoiceEditor } from './BrandVoiceEditor';
 import { Palette, Type, CheckCircle, XCircle, Copy, Check, Download, RefreshCw, FileImage, ShieldCheck, AlignLeft, Eye, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Shuffle, History, Compass, Sparkles, Layers, Grid, Globe, Activity, ThumbsUp, BarChart3, TrendingUp, FileJson, FileText, ChevronDown, Volume2, Sliders, MessageSquare, Code2, Target, Wand2, Bot, Zap, Share2, Lightbulb, Megaphone, X, Info, Search, ExternalLink, ArrowUpRight, Camera, Heart, Columns, LayoutGrid, Star, Ruler, Ban, Sun, Moon, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -111,6 +115,9 @@ interface BrandBibleDashboardProps {
   onUpdatePattern: (newPattern: BrandPattern) => void;
   onUpdateFavicon: (newFavicon: BrandFavicon) => void;
   onUpdateVoice?: (newVoice: BrandVoice) => void;
+  onUpdateBible?: (newBible: BrandBible) => void;
+  onUpdateMission?: (newMission: string) => void;
+  onUpdateTagline?: (newTagline: string) => void;
 }
 
 export default function BrandBibleDashboard({
@@ -124,7 +131,10 @@ export default function BrandBibleDashboard({
   onUpdateArchetype,
   onUpdatePattern,
   onUpdateFavicon,
-  onUpdateVoice
+  onUpdateVoice,
+  onUpdateBible,
+  onUpdateMission,
+  onUpdateTagline
 }: BrandBibleDashboardProps) {
   const [copiedHex, setCopiedHex] = useState<string | null>(null);
   const [contrastBg, setContrastBg] = useState<string>(bible.colorPalette[0]?.hex || '#ffffff');
@@ -400,8 +410,10 @@ export default function BrandBibleDashboard({
   const [logoAspectRatio, setLogoAspectRatio] = useState<'standard' | 'square'>('standard');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [showPdfExportModal, setShowPdfExportModal] = useState(false);
   const [isExportingPng, setIsExportingPng] = useState(false);
   const [isLinkCopied, setIsLinkCopied] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
   const [isAuditing, setIsAuditing] = useState(false);
   const [auditReport, setAuditReport] = useState<StyleAuditReport | null>(null);
@@ -454,17 +466,58 @@ export default function BrandBibleDashboard({
     }
   };
 
-  const handleCopyShareableLink = () => {
-    const shareUrl = generateShareableUrl(bible);
-    window.history.replaceState(null, '', `#share=${encodeBrandBibleToHash(bible)}`);
-    navigator.clipboard.writeText(shareUrl);
-    setIsLinkCopied(true);
-    setToast({
-      message: "Shareable link copied to clipboard! Anyone with this link can view this brand identity.",
-      hex: bible.colorPalette[0]?.hex || '#6366f1'
-    });
-    setTimeout(() => setIsLinkCopied(false), 2500);
-    setTimeout(() => setToast(null), 3500);
+  const handleCopyShareableLink = async (openModalAfter = false) => {
+    try {
+      const base64Str = encodeBrandBibleToHash(bible);
+      window.location.hash = `share=${base64Str}`;
+      window.history.replaceState(null, '', `#share=${base64Str}`);
+
+      const shareUrl = generateShareableUrl(bible);
+      let copied = false;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(shareUrl);
+          copied = true;
+        } catch {
+          // fallback below
+        }
+      }
+      if (!copied) {
+        try {
+          const textarea = document.createElement('textarea');
+          textarea.value = shareUrl;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+          copied = true;
+        } catch (e) {
+          console.warn('Fallback copy error:', e);
+        }
+      }
+
+      setIsLinkCopied(true);
+      setToast({
+        message: "Shareable link generated and copied! Active brand bible encoded into URL hash.",
+        hex: bible.colorPalette[0]?.hex || '#6366f1'
+      });
+      setTimeout(() => setIsLinkCopied(false), 2500);
+      setTimeout(() => setToast(null), 3500);
+
+      if (openModalAfter) {
+        setShowShareModal(true);
+      }
+    } catch (err: any) {
+      console.error("Failed to copy shareable link:", err);
+      setToast({
+        message: `Failed to copy shareable link: ${err?.message || 'Error'}`,
+        hex: '#ef4444'
+      });
+      setTimeout(() => setToast(null), 3500);
+    }
   };
 
   const [isLogoHistoryOpen, setIsLogoHistoryOpen] = useState(false);
@@ -2042,220 +2095,20 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
   const handleDownloadAssetSheetPdf = async () => {
     try {
       setIsExportingPdf(true);
-      const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
+      const fileName = await downloadBrandPdf(bible, {
+        documentType: 'executive',
+        auditReport: auditReport || undefined
       });
-
-      const primaryHex = bible.colorPalette[0]?.hex || '#6366f1';
-      const todayStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-
-      // Header Banner
-      doc.setFillColor(15, 23, 42); // slate-900
-      doc.rect(0, 0, 210, 38, 'F');
-
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(20);
-      doc.text(bible.companyName || 'Brand Identity Assets', 15, 16);
-
-      doc.setFontSize(8.5);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(129, 140, 248); // indigo-400
-      doc.text(`CORE BRAND ASSETS & SPECIFICATION SHEET  ‚Ä¢  ${(bible.industry || 'General Sector').toUpperCase()}`, 15, 24);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184); // slate-400
-      doc.text(`Exported: ${todayStr}   |   Logo, 5-Color Design Palette & Typography Specifications`, 15, 31);
-
-      let y = 46;
-
-      // Section 1: Primary Brand Logo Mark & Specs
-      doc.setTextColor(15, 23, 42);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text('1. Primary Brand Logo Mark & Specifications', 15, y);
-      y += 6;
-
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(15, y, 180, 48, 3, 3, 'FD');
-
-      let logoDataUrl: string | null = null;
-      if (bible.primaryLogo) {
-        if (bible.primaryLogo.startsWith('data:image/png') || bible.primaryLogo.startsWith('data:image/jpeg')) {
-          logoDataUrl = bible.primaryLogo;
-        } else {
-          try {
-            let src = bible.primaryLogo;
-            if (src.trim().startsWith('<svg')) {
-              const clean = getCleanSvg(src);
-              src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
-            }
-            logoDataUrl = await new Promise<string | null>((resolve) => {
-              const img = new Image();
-              img.crossOrigin = 'anonymous';
-              img.onload = () => {
-                try {
-                  const canvas = document.createElement('canvas');
-                  canvas.width = img.naturalWidth || 300;
-                  canvas.height = img.naturalHeight || 300;
-                  const ctx = canvas.getContext('2d');
-                  if (ctx) {
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    resolve(canvas.toDataURL('image/png'));
-                  } else {
-                    resolve(null);
-                  }
-                } catch {
-                  resolve(null);
-                }
-              };
-              img.onerror = () => resolve(null);
-              img.src = src;
-            });
-          } catch {
-            logoDataUrl = null;
-          }
-        }
-      }
-
-      if (logoDataUrl) {
-        try {
-          doc.addImage(logoDataUrl, 'PNG', 20, y + 4, 40, 40);
-          
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(10);
-          doc.setTextColor(15, 23, 42);
-          doc.text(bible.companyName || 'Primary Logo', 68, y + 14);
-
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8);
-          doc.setTextColor(100, 116, 139);
-          doc.text('Primary vector logo mark synthesized for multi-scale brand applications.', 68, y + 21);
-          doc.text(`Primary Color Fill: ${primaryHex.toUpperCase()}   |   Aspect Ratio: ${logoAspectRatio.toUpperCase()}`, 68, y + 28);
-          doc.text('High-fidelity rasterized vector export included.', 68, y + 35);
-        } catch {
-          doc.setFontSize(8.5);
-          doc.setFont('helvetica', 'italic');
-          doc.setTextColor(100, 116, 139);
-          doc.text(`${bible.companyName} Primary Mark Included in Specifications`, 20, y + 24);
-        }
-      } else {
-        doc.setFontSize(8.5);
-        doc.setFont('helvetica', 'italic');
-        doc.setTextColor(100, 116, 139);
-        doc.text(`${bible.companyName} Primary Mark Vector Included`, 20, y + 24);
-      }
-      y += 56;
-
-      // Section 2: 5-Color Brand Palette & Accessibility Specs
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text('2. 5-Color Design Palette & WCAG Accessibility Ratings', 15, y);
-      y += 6;
-
-      if (bible.colorPalette && bible.colorPalette.length > 0) {
-        let xOffset = 15;
-        const swatchWidth = 33;
-        bible.colorPalette.forEach((col) => {
-          const rgb = hexToRgb(col.hex);
-          if (rgb) {
-            doc.setFillColor(rgb.r, rgb.g, rgb.b);
-          } else {
-            doc.setFillColor(99, 102, 241);
-          }
-          doc.roundedRect(xOffset, y, swatchWidth, 22, 2, 2, 'F');
-          doc.setDrawColor(203, 213, 225);
-          doc.roundedRect(xOffset, y, swatchWidth, 22, 2, 2, 'S');
-
-          const a11y = getAccessibilityScore(col.hex);
-
-          doc.setFontSize(8);
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(15, 23, 42);
-          doc.text(doc.splitTextToSize(col.name, swatchWidth), xOffset, y + 27);
-
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7.5);
-          doc.setTextColor(100, 116, 139);
-          doc.text(col.hex.toUpperCase(), xOffset, y + 32);
-          doc.text(`Role: ${col.role}`, xOffset, y + 37);
-
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(7);
-          if (a11y.rating === 'AAA') {
-            doc.setTextColor(16, 185, 129);
-          } else if (a11y.rating.startsWith('AA')) {
-            doc.setTextColor(99, 102, 241);
-          } else {
-            doc.setTextColor(244, 63, 94);
-          }
-          doc.text(`WCAG ${a11y.rating} (${a11y.bestRatio.toFixed(1)}:1)`, xOffset, y + 42);
-
-          xOffset += 36;
-        });
-        y += 50;
-      }
-
-      // Section 3: Typography & Font Pairings
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text('3. Typography Hierarchy & Google Font Pairings', 15, y);
-      y += 6;
-
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(15, y, 180, 52, 3, 3, 'FD');
-
-      doc.setFontSize(9.5);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(15, 23, 42);
-      doc.text(`Display Header Font: ${bible.typography?.headerFont || 'Playfair Display'}  [${bible.typography?.headerCategory || 'Serif'}]`, 20, y + 9);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(71, 85, 105);
-      doc.text(`Primary usage: ${bible.typography?.headerUsage || 'Hero banners, executive headings, and section titles.'}`, 20, y + 16);
-
-      doc.setFontSize(9.5);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(15, 23, 42);
-      doc.text(`Body Paragraph Font: ${bible.typography?.bodyFont || 'Plus Jakarta Sans'}  [${bible.typography?.bodyCategory || 'Sans-Serif'}]`, 20, y + 27);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(71, 85, 105);
-      doc.text(`Primary usage: ${bible.typography?.bodyUsage || 'Paragraph copy, UI controls, navigation labels, and descriptions.'}`, 20, y + 34);
-
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(7.5);
-      doc.setTextColor(100, 116, 139);
-      doc.text('Sample Scale: Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz  |  0 1 2 3 4 5 6 7 8 9', 20, y + 44);
-
-      // Footer
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text(`AI Studio Brand Identity Asset Spec Sheet  ‚Ä¢  ${bible.companyName}  ‚Ä¢  Page 1 of 1`, 15, 287);
-
-      const safeName = (bible.companyName || 'brand').toLowerCase().replace(/[^a-z0-9]/g, '-');
-      doc.save(`${safeName}-brand-assets-spec.pdf`);
-
       setToast({
-        message: "Downloaded 1-Page Brand Assets PDF Sheet!",
-        hex: primaryHex
+        message: `Exported executive asset sheet: ${fileName}`,
+        hex: bible.colorPalette[0]?.hex || '#6366f1'
       });
-      setTimeout(() => setToast(null), 2500);
+      setTimeout(() => setToast(null), 3500);
     } catch (err: any) {
-      console.error("Failed to generate Asset Sheet PDF:", err);
+      console.error('Failed to create executive asset sheet PDF:', err);
       setToast({
         message: `Failed to create PDF: ${err.message}`,
-        hex: "#ef4444"
+        hex: '#ef4444'
       });
       setTimeout(() => setToast(null), 3000);
     } finally {
@@ -2263,491 +2116,25 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
     }
   };
 
-  const handleDownloadBrandPdf = async () => {
+  const handleDownloadBrandPdf = async (options?: Partial<PdfExportOptions>) => {
     try {
       setIsExportingPdf(true);
-      const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
+      const fileName = await downloadBrandPdf(bible, {
+        documentType: 'comprehensive',
+        auditReport: auditReport || undefined,
+        includeAuditReport: Boolean(auditReport),
+        ...options
       });
-
-      const primaryHex = bible.colorPalette[0]?.hex || '#6366f1';
-      const todayStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-      
-      // PAGE 1: Core Specifications, Primary Mark & Palette
-      // Header Banner
-      doc.setFillColor(15, 23, 42); // slate-900
-      doc.rect(0, 0, 210, 42, 'F');
-
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(22);
-      doc.text(bible.companyName || 'Brand Guidelines', 15, 18);
-
-      doc.setFontSize(8.5);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(129, 140, 248); // indigo-400
-      doc.text(`BRAND SPECIFICATION BIBLE  ‚Ä¢  ${(bible.industry || 'General Sector').toUpperCase()}`, 15, 26);
-      
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184); // slate-400
-      doc.text(`Target Audience: ${bible.targetAudience || 'Universal'}   |   Exported: ${todayStr}`, 15, 33);
-
-      let y = 48;
-
-      // Section 1: Executive Mission & Keywords
-      doc.setTextColor(15, 23, 42);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text('1. Executive Mission & Keywords', 15, y);
-      y += 6;
-
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      const missionText = bible.mission || 'To empower users with world-class design standards.';
-      const splitMission = doc.splitTextToSize(missionText, 172);
-      const missionBoxHeight = Math.max(18, (splitMission.length * 4.5) + 10);
-      doc.roundedRect(15, y, 180, missionBoxHeight, 2, 2, 'FD');
-
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(8.5);
-      doc.setTextColor(51, 65, 85);
-      doc.text(splitMission, 19, y + 6);
-
-      const keywordsStr = (bible.brandKeywords || []).join('  ‚Ä¢  ');
-      if (keywordsStr) {
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.5);
-        doc.setTextColor(99, 102, 241);
-        doc.text(`KEYWORDS: ${keywordsStr}`, 19, y + missionBoxHeight - 4);
-      }
-      y += missionBoxHeight + 8;
-
-      // Section 2: Primary Brand Mark
-      doc.setTextColor(15, 23, 42);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text('2. Primary Brand Mark', 15, y);
-      y += 6;
-
-      doc.setFillColor(255, 255, 255);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(15, y, 180, 48, 3, 3, 'FD');
-
-      let logoDataUrl: string | null = null;
-      if (bible.primaryLogo) {
-        if (bible.primaryLogo.startsWith('data:image/png') || bible.primaryLogo.startsWith('data:image/jpeg')) {
-          logoDataUrl = bible.primaryLogo;
-        } else {
-          try {
-            let src = bible.primaryLogo;
-            if (src.trim().startsWith('<svg')) {
-              const clean = getCleanSvg(src);
-              src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(clean)}`;
-            }
-            logoDataUrl = await new Promise<string | null>((resolve) => {
-              const img = new Image();
-              img.crossOrigin = 'anonymous';
-              img.onload = () => {
-                try {
-                  const canvas = document.createElement('canvas');
-                  canvas.width = img.naturalWidth || 300;
-                  canvas.height = img.naturalHeight || 300;
-                  const ctx = canvas.getContext('2d');
-                  if (ctx) {
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    resolve(canvas.toDataURL('image/png'));
-                  } else {
-                    resolve(null);
-                  }
-                } catch {
-                  resolve(null);
-                }
-              };
-              img.onerror = () => resolve(null);
-              img.src = src;
-            });
-          } catch {
-            logoDataUrl = null;
-          }
-        }
-      }
-
-      if (logoDataUrl) {
-        try {
-          doc.addImage(logoDataUrl, 'PNG', 20, y + 4, 40, 40);
-          
-          // Info next to logo
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(9.5);
-          doc.setTextColor(15, 23, 42);
-          doc.text(`${bible.companyName} Primary Mark`, 68, y + 12);
-
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8);
-          doc.setTextColor(100, 116, 139);
-          doc.text('Primary vector logo mark synthesized for multi-scale applications.', 68, y + 18);
-          doc.text('Format: PNG / SVG Standard   |   Resolution: High-Res Rasterized', 68, y + 24);
-          doc.text(`Primary Color: ${primaryHex.toUpperCase()}`, 68, y + 30);
-        } catch (err) {
-          doc.setFontSize(8.5);
-          doc.setFont('helvetica', 'italic');
-          doc.setTextColor(100, 116, 139);
-          doc.text(`${bible.companyName} Primary Mark Included in Specifications`, 20, y + 24);
-        }
-      } else {
-        doc.setFontSize(8.5);
-        doc.setFont('helvetica', 'italic');
-        doc.setTextColor(100, 116, 139);
-        doc.text(`${bible.companyName} Primary Mark Vector Included`, 20, y + 24);
-      }
-      y += 54;
-
-      // Section 3: 5-Color Palette & Accessibility Specs
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text('3. 5-Color Design Palette & Accessibility Ratings', 15, y);
-      y += 6;
-
-      if (bible.colorPalette && bible.colorPalette.length > 0) {
-        let xOffset = 15;
-        const swatchWidth = 33;
-        bible.colorPalette.forEach((col) => {
-          const rgb = hexToRgb(col.hex);
-          if (rgb) {
-            doc.setFillColor(rgb.r, rgb.g, rgb.b);
-          } else {
-            doc.setFillColor(99, 102, 241);
-          }
-          doc.roundedRect(xOffset, y, swatchWidth, 20, 2, 2, 'F');
-          doc.setDrawColor(203, 213, 225);
-          doc.roundedRect(xOffset, y, swatchWidth, 20, 2, 2, 'S');
-
-          const a11y = getAccessibilityScore(col.hex);
-
-          doc.setFontSize(8);
-          doc.setFont('helvetica', 'bold');
-          doc.setTextColor(15, 23, 42);
-          doc.text(doc.splitTextToSize(col.name, swatchWidth), xOffset, y + 25);
-
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7);
-          doc.setTextColor(100, 116, 139);
-          doc.text(col.hex.toUpperCase(), xOffset, y + 30);
-          doc.text(`Role: ${col.role}`, xOffset, y + 34);
-
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(6.5);
-          if (a11y.rating === 'AAA') {
-            doc.setTextColor(16, 185, 129);
-          } else if (a11y.rating.startsWith('AA')) {
-            doc.setTextColor(99, 102, 241);
-          } else {
-            doc.setTextColor(244, 63, 94);
-          }
-          doc.text(`A11y ${a11y.rating} (${a11y.bestRatio.toFixed(1)}:1)`, xOffset, y + 38);
-
-          xOffset += 36;
-        });
-        y += 44;
-      }
-
-      // Compliant Contrast Pairing Summary Box
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(15, y, 180, 18, 2, 2, 'FD');
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.setTextColor(15, 23, 42);
-      doc.text('WCAG 2.1 Accessibility Audit Summary:', 19, y + 5);
-
-      const compliantPairs = getCompliantPairs(4.5);
-      const topPairsStr = compliantPairs.slice(0, 3).map(p => `${p.bg} on ${p.text} (${p.ratio.toFixed(1)}:1)`).join('  |  ');
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
-      doc.setTextColor(71, 85, 105);
-      doc.text(topPairsStr ? `Recommended compliant text pairs: ${topPairsStr}` : 'All palette colors pass minimum contrast checks against white or slate dark backgrounds.', 19, y + 11);
-
-      // Footer Page 1
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text(`AI Studio Brand Specification Bible  ‚Ä¢  ${bible.companyName}  ‚Ä¢  Page 1 of 3`, 15, 287);
-
-      // PAGE 2: Typography, Archetype, Voice & Guidelines
-      doc.addPage();
-
-      // Top running header on Page 2
-      doc.setFillColor(15, 23, 42);
-      doc.rect(0, 0, 210, 14, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.setTextColor(255, 255, 255);
-      doc.text(`${(bible.companyName || 'BRAND').toUpperCase()}  ‚Äî  TYPOGRAPHY, VOICE & BRAND GUIDELINES`, 15, 9);
-      doc.setTextColor(129, 140, 248);
-      doc.text('PAGE 2 OF 3', 178, 9);
-
-      let y2 = 22;
-
-      // Section 4: Typography & Google Font Pairings
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text('4. Typography & Google Font Scale', 15, y2);
-      y2 += 6;
-
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(15, y2, 180, 32, 2, 2, 'FD');
-
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(15, 23, 42);
-      doc.text(`Display Header Font: ${bible.typography?.headerFont || 'Playfair Display'} (${bible.typography?.headerCategory || 'Serif'})`, 20, y2 + 7);
-      doc.text(`Body Paragraph Font: ${bible.typography?.bodyFont || 'Plus Jakarta Sans'} (${bible.typography?.bodyCategory || 'Sans-Serif'})`, 20, y2 + 15);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(71, 85, 105);
-      doc.text(`Header Application: ${bible.typography?.headerUsage || 'Primary displays and section headings'}`, 20, y2 + 22);
-      doc.text(`Body Application: ${bible.typography?.bodyUsage || 'Paragraph copy, UI elements, and navigation labels'}`, 20, y2 + 27);
-      y2 += 38;
-
-      // Section 5: Brand Archetype
-      if (bible.archetype) {
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(15, 23, 42);
-        doc.text('5. Brand Archetype & Strategic Identity', 15, y2);
-        y2 += 6;
-
-        doc.setFillColor(248, 250, 252);
-        doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(15, y2, 180, 26, 2, 2, 'FD');
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.setTextColor(99, 102, 241);
-        doc.text(`Primary Archetype: ${bible.archetype.primaryArchetype.toUpperCase()}`, 20, y2 + 7);
-
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(8);
-        doc.setTextColor(51, 65, 85);
-        doc.text(`"${bible.archetype.tagline}"`, 20, y2 + 13);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(100, 116, 139);
-        const splitSummary = doc.splitTextToSize(`Summary: ${bible.archetype.summary}`, 170);
-        doc.text(splitSummary, 20, y2 + 19);
-        y2 += 32;
-      }
-
-      // Section 6: Verbal Identity & Brand Voice
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text('6. Verbal Identity & Voice Guidelines', 15, y2);
-      y2 += 6;
-
-      const voiceObj = typeof bible.brandVoice === 'object' ? bible.brandVoice : null;
-      const voiceTone = voiceObj?.tone || (typeof bible.brandVoice === 'string' ? bible.brandVoice : 'Professional, clear, and confident.');
-      
-      doc.setFillColor(255, 255, 255);
-      doc.setDrawColor(226, 232, 240);
-      const splitTone = doc.splitTextToSize(`Tone of Voice: "${voiceTone}"`, 172);
-      const voiceBoxHeight = Math.max(22, (splitTone.length * 4) + 12);
-      doc.roundedRect(15, y2, 180, voiceBoxHeight, 2, 2, 'FD');
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.setTextColor(15, 23, 42);
-      doc.text(splitTone, 19, y2 + 6);
-
-      if (voiceObj?.aboutUsParagraph) {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(71, 85, 105);
-        const splitAbout = doc.splitTextToSize(`Sample Story: "${voiceObj.aboutUsParagraph}"`, 172);
-        doc.text(splitAbout, 19, y2 + 14);
-      }
-      y2 += voiceBoxHeight + 8;
-
-      // Section 7: Usage Guidelines (Do's & Don'ts)
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text("7. Brand Usage Directives (Do's & Don'ts)", 15, y2);
-      y2 += 6;
-
-      // Do Box
-      doc.setFillColor(236, 253, 245); // emerald-50
-      doc.setDrawColor(167, 243, 208);
-      doc.roundedRect(15, y2, 87, 44, 2, 2, 'FD');
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(6, 95, 70);
-      doc.text('Mandatory Directives (Do)', 19, y2 + 6);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
-      doc.setTextColor(15, 23, 42);
-      let doY = y2 + 12;
-      (bible.doGuidelines || []).slice(0, 4).forEach((g) => {
-        const splitG = doc.splitTextToSize(`‚Ä¢ ${g}`, 80);
-        doc.text(splitG, 19, doY);
-        doY += (splitG.length * 3.5);
-      });
-
-      // Don't Box
-      doc.setFillColor(255, 241, 242); // rose-50
-      doc.setDrawColor(254, 205, 211);
-      doc.roundedRect(108, y2, 87, 44, 2, 2, 'FD');
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
-      doc.setTextColor(159, 18, 57);
-      doc.text('Prohibited Usages (Don\'t)', 112, y2 + 6);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
-      doc.setTextColor(15, 23, 42);
-      let dontY = y2 + 12;
-      (bible.dontGuidelines || []).slice(0, 4).forEach((g) => {
-        const splitG = doc.splitTextToSize(`‚Ä¢ ${g}`, 80);
-        doc.text(splitG, 112, dontY);
-        dontY += (splitG.length * 3.5);
-      });
-
-      // Footer Page 2
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text(`AI Studio Brand Specification Bible  ‚Ä¢  ${bible.companyName}  ‚Ä¢  Page 2 of 3`, 15, 287);
-
-      // PAGE 3: Brand Patterns, Favicon & Style Audit Report
-      doc.addPage();
-
-      // Top running header on Page 3
-      doc.setFillColor(15, 23, 42);
-      doc.rect(0, 0, 210, 14, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.setTextColor(255, 255, 255);
-      doc.text(`${(bible.companyName || 'BRAND').toUpperCase()}  ‚Äî  PATTERNS, FAVICON & STYLE AUDIT`, 15, 9);
-      doc.setTextColor(129, 140, 248);
-      doc.text('PAGE 3 OF 3', 178, 9);
-
-      let y3 = 22;
-
-      // Section 8: Brand Pattern Specifications
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text('8. Seamless Brand Pattern & Background Specs', 15, y3);
-      y3 += 6;
-
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(15, y3, 180, 28, 2, 2, 'FD');
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(99, 102, 241);
-      doc.text(`Active Pattern Motif: ${bible.pattern?.patternName || 'Geometric Tile Overlay'}`, 20, y3 + 7);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(71, 85, 105);
-      const splitPatternDesc = doc.splitTextToSize(`Concept Strategy: ${bible.pattern?.description || 'Seamless vector pattern customized with brand-locked hex colors for print and digital mediums.'}`, 170);
-      doc.text(splitPatternDesc, 20, y3 + 14);
-      y3 += 34;
-
-      // Section 9: Favicon Mark Specs
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text('9. Digital Favicon & App Icon Specifications', 15, y3);
-      y3 += 6;
-
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(15, y3, 180, 28, 2, 2, 'FD');
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(15, 23, 42);
-      doc.text(`Favicon Mark: ${bible.favicon?.faviconName || 'Brand Monogram Mark'}`, 20, y3 + 7);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(71, 85, 105);
-      const splitFaviconExp = doc.splitTextToSize(`Application Strategy: ${bible.favicon?.explanation || 'Optimized for browser tabs, web app bookmarks, and mobile launcher home screen icons.'}`, 170);
-      doc.text(splitFaviconExp, 20, y3 + 14);
-      y3 += 34;
-
-      // Section 10: Automated Style Audit Report Summary (if available)
-      if (auditReport) {
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(15, 23, 42);
-        doc.text('10. Automated Style Audit Quality Report', 15, y3);
-        y3 += 6;
-
-        doc.setFillColor(248, 250, 252);
-        doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(15, y3, 180, 52, 2, 2, 'FD');
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9.5);
-        doc.setTextColor(99, 102, 241);
-        doc.text(`Overall Brand Quality Score: ${auditReport.overallScore}/100  ‚Äî  "${auditReport.ratingTagline}"`, 20, y3 + 8);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        doc.setTextColor(71, 85, 105);
-        doc.text(`‚Ä¢ Color Contrast Score: ${auditReport.colorContrastReport.score}/100 (${auditReport.colorContrastReport.status})`, 20, y3 + 16);
-        doc.text(`‚Ä¢ Font Legibility Score: ${auditReport.fontLegibilityReport.score}/100 (${auditReport.fontLegibilityReport.status})`, 20, y3 + 22);
-        doc.text(`‚Ä¢ Archetype Consistency Score: ${auditReport.archetypeConsistencyReport.score}/100 (${auditReport.archetypeConsistencyReport.status})`, 20, y3 + 28);
-
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(7.5);
-        doc.setTextColor(15, 23, 42);
-        doc.text('Key Actionable Improvements:', 20, y3 + 36);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7);
-        doc.setTextColor(100, 116, 139);
-        const topRecs = (auditReport.actionableImprovements || []).slice(0, 2).map((r: string) => `‚Ä¢ ${r}`).join('   ');
-        const splitRecs = doc.splitTextToSize(topRecs || '‚Ä¢ All core specs meet WCAG 2.1 compliance.', 170);
-        doc.text(splitRecs, 20, y3 + 42);
-
-        y3 += 58;
-      }
-
-      // Footer Page 3
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text(`AI Studio Brand Specification Bible  ‚Ä¢  ${bible.companyName}  ‚Ä¢  Page 3 of 3`, 15, 287);
-
-      doc.save(`${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-brand-bible.pdf`);
-
       setToast({
-        message: "Downloaded Brand Specification PDF!",
-        hex: primaryHex
+        message: `Exported brand guidelines: ${fileName}`,
+        hex: bible.colorPalette[0]?.hex || '#6366f1'
       });
-      setTimeout(() => setToast(null), 2500);
+      setTimeout(() => setToast(null), 3500);
     } catch (err: any) {
-      console.error("PDF generation error:", err);
+      console.error('PDF generation error:', err);
       setToast({
         message: `Failed to generate PDF: ${err.message}`,
-        hex: "#ef4444"
+        hex: '#ef4444'
       });
       setTimeout(() => setToast(null), 3000);
     } finally {
@@ -3073,17 +2460,18 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
               </button>
 
               <button
-                id="dashboard-copy-shareable-link-btn"
-                onClick={handleCopyShareableLink}
+                id="shareable-link-btn"
+                data-testid="shareable-link-btn"
+                onClick={() => handleCopyShareableLink(false)}
                 className="bg-slate-800/90 hover:bg-slate-700 active:scale-98 text-white px-4 py-2.5 text-xs font-bold rounded-full flex items-center gap-2 shadow-md border border-slate-700/80 transition cursor-pointer"
-                title="Copy shareable link encoding this brand identity"
+                title="Encode active brand bible into a base64 string and update URL hash to share with others"
               >
                 {isLinkCopied ? (
                   <Check className="w-3.5 h-3.5 text-emerald-400" />
                 ) : (
                   <Share2 className="w-3.5 h-3.5 text-indigo-300" />
                 )}
-                <span>{isLinkCopied ? "Link Copied!" : "Copy Shareable Link"}</span>
+                <span>{isLinkCopied ? "Link Copied!" : "Shareable Link"}</span>
               </button>
 
               <button
@@ -3141,20 +2529,43 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                           id="export-share-link-btn"
                           onClick={() => {
                             setShowExportMenu(false);
-                            handleCopyShareableLink();
+                            handleCopyShareableLink(false);
                           }}
                           className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-slate-800 transition flex items-start gap-3 cursor-pointer group border-b border-slate-800/80 mb-1 pb-2.5"
                         >
                           <Share2 className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0 group-hover:scale-110 transition" />
                           <div>
                             <div className="font-bold text-white flex items-center gap-1.5">
-                              <span>Copy Shareable Link</span>
+                              <span>Shareable Link</span>
+                              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">URL HASH</span>
                             </div>
                             <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
-                              Encode brand specification into a shareable URL hash.
+                              Encode active brand bible into a base64 string and update URL hash.
                             </p>
                           </div>
                         </button>
+
+                      <button
+                        id="export-social-banners-btn"
+                        onClick={() => {
+                          setShowExportMenu(false);
+                          const el = document.getElementById('social-banners-brand-section');
+                          if (el) {
+                            el.scrollIntoView({ behavior: 'smooth' });
+                          }
+                        }}
+                        className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-slate-800 transition flex items-start gap-3 cursor-pointer group"
+                      >
+                        <Share2 className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0 group-hover:scale-110 transition" />
+                        <div>
+                          <div className="font-bold text-white flex items-center gap-1.5">
+                            <span>Social Media Banners Studio</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                            Generate &amp; download X, LinkedIn, YouTube &amp; Instagram banners.
+                          </p>
+                        </div>
+                      </button>
 
                       <button
                         id="export-dashboard-png-btn"
@@ -3176,6 +2587,25 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                         </div>
                       </button>
 
+                      <button
+                        id="open-pdf-modal-btn"
+                        onClick={() => {
+                          setShowExportMenu(false);
+                          setShowPdfExportModal(true);
+                        }}
+                        className="w-full text-left px-3.5 py-2.5 rounded-xl hover:bg-slate-800 transition flex items-start gap-3 cursor-pointer group"
+                      >
+                        <Sliders className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0 group-hover:scale-110 transition" />
+                        <div>
+                          <div className="font-bold text-white flex items-center gap-1.5">
+                            <span>Configure &amp; Export PDF...</span>
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-bold">MODAL</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                            Choose 1-sheet vs 3-page manual, dark/light theme, paper size &amp; preview.
+                          </p>
+                        </div>
+                      </button>
                       <button
                         id="export-pdf-btn"
                         onClick={() => {
@@ -4431,16 +3861,29 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </p>
           </div>
 
-          {!bible.archetype && (
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <button
-              onClick={handleGenerateArchetype}
-              disabled={isGeneratingArchetype}
-              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 text-white rounded-full text-xs font-extrabold flex items-center gap-2 transition duration-200 shadow-md shadow-indigo-500/10 active:scale-95 cursor-pointer shrink-0 font-sans"
+              id="jump-to-voice-editor-from-archetype-btn"
+              onClick={() => document.getElementById('brand-voice-editor-section')?.scrollIntoView({ behavior: 'smooth' })}
+              className={`px-3.5 py-2 rounded-full text-xs font-bold font-sans flex items-center gap-1.5 transition cursor-pointer border ${
+                isDark ? 'bg-slate-950 border-slate-800 text-indigo-400 hover:text-indigo-300 hover:border-indigo-500/50' : 'bg-indigo-50/60 border-indigo-200 text-indigo-600 hover:bg-indigo-100/70'
+              }`}
             >
-              <Compass className={`w-4 h-4 ${isGeneratingArchetype ? 'animate-spin' : ''}`} />
-              {isGeneratingArchetype ? 'Analyzing...' : 'Discover Brand Archetype'}
+              <Wand2 className="w-3.5 h-3.5" />
+              <span>AI Copy Rephrase Editor</span>
             </button>
-          )}
+
+            {!bible.archetype && (
+              <button
+                onClick={handleGenerateArchetype}
+                disabled={isGeneratingArchetype}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/50 text-white rounded-full text-xs font-extrabold flex items-center gap-2 transition duration-200 shadow-md shadow-indigo-500/10 active:scale-95 cursor-pointer shrink-0 font-sans"
+              >
+                <Compass className={`w-4 h-4 ${isGeneratingArchetype ? 'animate-spin' : ''}`} />
+                {isGeneratingArchetype ? 'Analyzing...' : 'Discover Brand Archetype'}
+              </button>
+            )}
+          </div>
         </div>
 
         {bible.archetype ? (
@@ -4635,7 +4078,18 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </p>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <button
+              id="jump-to-voice-editor-from-voice-header-btn"
+              onClick={() => document.getElementById('brand-voice-editor-section')?.scrollIntoView({ behavior: 'smooth' })}
+              className={`px-3.5 py-2 rounded-full text-xs font-bold font-sans flex items-center gap-1.5 transition cursor-pointer border ${
+                isDark ? 'bg-slate-950 border-slate-800 text-indigo-400 hover:text-indigo-300 hover:border-indigo-500/50' : 'bg-indigo-50/60 border-indigo-200 text-indigo-600 hover:bg-indigo-100/70'
+              }`}
+            >
+              <Wand2 className="w-3.5 h-3.5" />
+              <span>AI Rephrase Studio</span>
+            </button>
+
             <button
               id="generate-voice-gemini-btn"
               onClick={() => handleGenerateVoice()}
@@ -5445,6 +4899,48 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
           </div>
         </div>
       </div>
+
+      {/* 03d. Brand Voice & Archetype Copy Rephrase Editor */}
+      <BrandVoiceEditor
+        bible={bible}
+        isDark={isDark}
+        onUpdateMission={(newMission) => {
+          if (onUpdateMission) {
+            onUpdateMission(newMission);
+          } else if (onUpdateBible) {
+            onUpdateBible({ ...bible, mission: newMission });
+          }
+        }}
+        onUpdateTagline={(newTagline) => {
+          if (onUpdateTagline) {
+            onUpdateTagline(newTagline);
+          } else if (bible.archetype) {
+            onUpdateArchetype({ ...bible.archetype, tagline: newTagline });
+          } else if (onUpdateBible) {
+            onUpdateBible({
+              ...bible,
+              archetype: {
+                primaryArchetype: bible.archetype?.primaryArchetype || 'The Creator',
+                tagline: newTagline,
+                summary: bible.archetype?.summary || 'Visionary craft and original execution.',
+                attributes: bible.archetype?.attributes || ['Creative', 'Visionary'],
+                scores: bible.archetype?.scores || []
+              }
+            });
+          }
+        }}
+        onUpdateVoice={(newVoice) => {
+          if (onUpdateVoice) {
+            onUpdateVoice(newVoice);
+          } else if (onUpdateBible) {
+            onUpdateBible({ ...bible, brandVoice: newVoice });
+          }
+        }}
+        onShowToast={(message, hex) => {
+          setToast({ message, hex: hex || bible.colorPalette[0]?.hex || '#6366f1' });
+          setTimeout(() => setToast(null), 2500);
+        }}
+      />
 
       {/* Brand Analytics Section */}
       <div
@@ -10105,7 +9601,20 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         </div>
       </div>
 
-      {/* 08 / Download Brand Assets Section */}
+      {/* 08 / Social Media Profile Banners & Marketing Templates Section */}
+      <SocialBannersSection
+        bible={bible}
+        isDark={isDark}
+        onShowToast={(msg, hex) => {
+          setToast({
+            message: msg,
+            hex: hex || bible.colorPalette[0]?.hex || '#4f46e5'
+          });
+          setTimeout(() => setToast(null), 2500);
+        }}
+      />
+
+      {/* 09 / Download Brand Assets Section */}
       <div
         id="download-brand-assets-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
@@ -10117,7 +9626,7 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         }`}>
           <div>
             <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block mb-1 font-sans">
-              08 / Download Brand Assets
+              09 / Download Brand Assets
             </span>
             <h2 className={`text-xl font-black flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
               isDark ? 'text-white' : 'text-slate-900'
@@ -10131,6 +9640,25 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              id="dashboard-copy-shareable-link-btn"
+              data-testid="bottom-shareable-link-btn"
+              onClick={() => handleCopyShareableLink(false)}
+              className={`px-4 py-3 text-xs font-bold rounded-2xl border transition flex items-center gap-2 cursor-pointer ${
+                isDark
+                  ? 'bg-slate-900 border-slate-800 text-slate-200 hover:bg-slate-800 hover:text-white'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+              title="Encode active brand bible into a base64 string and update URL hash to share with others"
+            >
+              {isLinkCopied ? (
+                <Check className="w-4 h-4 text-emerald-500" />
+              ) : (
+                <Share2 className="w-4 h-4 text-indigo-500" />
+              )}
+              <span>{isLinkCopied ? "Link Copied!" : "Shareable Link"}</span>
+            </button>
+
             <button
               id="download-dashboard-snapshot-png-btn"
               onClick={handleDownloadDashboardPng}
@@ -10161,6 +9689,19 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
               <span>{isExportingPdf ? "Generating PDF..." : "Download Brand Assets PDF"}</span>
             </button>
 
+            <button
+              id="open-pdf-customizer-btn"
+              onClick={() => setShowPdfExportModal(true)}
+              className={`px-4 py-3 text-xs font-bold rounded-2xl border transition flex items-center gap-2 cursor-pointer ${
+                isDark
+                  ? 'bg-slate-950 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'
+                  : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200 hover:text-slate-900'
+              }`}
+              title="Open full PDF customization modal with 1-sheet vs 3-page, dark/light theme, and live preview"
+            >
+              <Sliders className="w-4 h-4 text-indigo-500" />
+              <span>PDF Options &amp; Preview</span>
+            </button>
             <button
               id="download-complete-bible-pdf-btn"
               onClick={handleDownloadBrandPdf}
@@ -10648,1157 +10189,11 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                               src={logoUrl}
                               alt={`Logo Version ${index + 1}`}
                               className="max-h-full max-w-full object-contain p-2 transition duration-200 group-hover:scale-105"
-                              referrerPolicy="no-referrer"
-                            />
-
-                            {/* Top badges */}
-                            <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-10">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold shadow-sm ${
-                                isDark ? 'bg-slate-950/90 text-slate-300 border border-slate-800' : 'bg-white/90 text-slate-700 border border-slate-200'
-                              }`}>
-                                v{index + 1}
-                              </span>
-                              {isActive && (
-                                <span className="bg-emerald-500 text-white px-2 py-0.5 rounded-full text-[9px] font-bold flex items-center gap-1 shadow-sm font-sans">
-                                  <Check className="w-3 h-3" /> Active Primary
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Favorite toggle top right */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleFavoriteLogo(logoUrl);
-                              }}
-                              className={`absolute top-2.5 right-2.5 p-1.5 rounded-full backdrop-blur transition z-10 cursor-pointer ${
-                                isFav ? 'bg-rose-500 text-white shadow-md' : 'bg-slate-900/60 text-slate-400 hover:text-rose-400 hover:bg-slate-900/90'
-                              }`}
-                              title={isFav ? "Remove from Favorites" : "Mark as Favorite"}
-                            >
-                              <Heart className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
-                            </button>
-
-                            {/* Hover actions overlay */}
-                            <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition duration-200 flex items-center justify-center gap-2 z-20">
-                              <button
-                                onClick={() => {
-                                  setOverlayCarouselIndex(index);
-                                  setOverlayViewMode('carousel');
-                                }}
-                                className="bg-white hover:bg-slate-100 text-slate-900 p-2.5 rounded-full shadow-lg transition transform hover:scale-110 cursor-pointer"
-                                title="Inspect in Carousel"
-                              >
-                                <Maximize2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setCompareLogoAIndex(allLogos.findIndex(u => u === bible.primaryLogo));
-                                  setCompareLogoBIndex(index);
-                                  setOverlayViewMode('compare');
-                                }}
-                                className="bg-white hover:bg-slate-100 text-slate-900 p-2.5 rounded-full shadow-lg transition transform hover:scale-110 cursor-pointer"
-                                title="Compare Side-by-Side vs Primary"
-                              >
-                                <Columns className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleDownloadLogo(logoUrl, `${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-logo-v${index + 1}.png`)}
-                                className="bg-white hover:bg-slate-100 text-slate-900 p-2.5 rounded-full shadow-lg transition transform hover:scale-110 cursor-pointer"
-                                title="Download PNG"
-                              >
-                                <Download className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Action Footer */}
-                          <div className="mt-3 pt-2.5 border-t border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between gap-2">
-                            {isActive ? (
-                              <div className="w-full text-center py-2 text-xs font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-xl font-sans flex items-center justify-center gap-1.5">
-                                <Check className="w-3.5 h-3.5" /> Selected Primary
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => handleRestoreLogo(logoUrl)}
-                                className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-98 text-white rounded-xl text-xs font-bold transition cursor-pointer font-sans shadow-md flex items-center justify-center gap-1.5"
-                              >
-                                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                                <span>Set as Active Primary</span>
-                              </button>
-                            )}
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* 2. CAROUSEL VIEW MODE */}
-                {overlayViewMode === 'carousel' && (
-                  <div className="flex flex-col h-full justify-between space-y-4">
-                    {/* Carousel Main Stage */}
-                    <div className="relative flex-1 flex items-center justify-center min-h-[340px] sm:min-h-[400px] rounded-2xl border overflow-hidden p-6">
-                      {/* Left arrow */}
-                      {allLogos.length > 1 && (
-                        <button
-                          onClick={() => setOverlayCarouselIndex(prev => (prev === 0 ? allLogos.length - 1 : prev - 1))}
-                          className="absolute left-4 z-20 p-3 bg-slate-900/80 hover:bg-indigo-600 text-white rounded-full shadow-xl transition transform hover:scale-110 cursor-pointer"
-                          title="Previous Logo (Left Arrow)"
-                        >
-                          <ChevronLeft className="w-6 h-6" />
-                        </button>
-                      )}
-
-                      {/* Right arrow */}
-                      {allLogos.length > 1 && (
-                        <button
-                          onClick={() => setOverlayCarouselIndex(prev => (prev === allLogos.length - 1 ? 0 : prev + 1))}
-                          className="absolute right-4 z-20 p-3 bg-slate-900/80 hover:bg-indigo-600 text-white rounded-full shadow-xl transition transform hover:scale-110 cursor-pointer"
-                          title="Next Logo (Right Arrow)"
-                        >
-                          <ChevronRight className="w-6 h-6" />
-                        </button>
-                      )}
-
-                      {/* Main Display Image */}
-                      <div className={`w-full h-full flex items-center justify-center p-8 rounded-xl transition-all duration-300 ${
-                        overlayBg === 'light'
-                          ? 'bg-white'
-                          : overlayBg === 'checker'
-                            ? 'bg-slate-900 bg-[radial-gradient(#475569_1px,transparent_1px)] [background-size:12px_12px]'
-                            : 'bg-slate-950'
-                      }`}>
-                        <motion.img
-                          key={overlayCarouselIndex}
-                          initial={{ opacity: 0, scale: 0.94 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.94 }}
-                          transition={{ duration: 0.18 }}
-                          src={allLogos[overlayCarouselIndex]}
-                          alt={`Logo Version ${overlayCarouselIndex + 1}`}
-                          className="max-h-[50vh] max-w-full object-contain drop-shadow-2xl"
-                          referrerPolicy="no-referrer"
-                        />
-                      </div>
-
-                      {/* Floating Controls Bar inside Carousel */}
-                      <div className="absolute top-4 left-4 right-4 flex justify-between items-center z-10 pointer-events-none">
-                        <span className="bg-slate-900/80 text-white border border-slate-800 backdrop-blur px-3 py-1 rounded-full text-xs font-mono font-bold pointer-events-auto">
-                          Version {overlayCarouselIndex + 1} of {allLogos.length}
-                        </span>
-
-                        <div className="flex items-center gap-2 pointer-events-auto">
-                          {allLogos[overlayCarouselIndex] === bible.primaryLogo ? (
-                            <span className="bg-emerald-500 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow">
-                              <Check className="w-3.5 h-3.5" /> Active Primary Mark
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => handleRestoreLogo(allLogos[overlayCarouselIndex])}
-                              className="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-full text-xs font-bold shadow-lg transition cursor-pointer flex items-center gap-1.5"
-                            >
-                              <Sparkles className="w-3.5 h-3.5 text-amber-300" /> Set as Primary
-                            </button>
-                          )}
-
-                          <button
-                            onClick={() => toggleFavoriteLogo(allLogos[overlayCarouselIndex])}
-                            className={`p-2 rounded-full backdrop-blur transition cursor-pointer ${
-                              favoriteLogos.includes(allLogos[overlayCarouselIndex])
-                                ? 'bg-rose-500 text-white'
-                                : 'bg-slate-900/80 text-slate-300 hover:text-rose-400'
-                            }`}
-                            title="Toggle Favorite"
-                          >
-                            <Heart className={`w-4 h-4 ${favoriteLogos.includes(allLogos[overlayCarouselIndex]) ? 'fill-current' : ''}`} />
-                          </button>
-
-                          <button
-                            onClick={() => handleDownloadLogo(allLogos[overlayCarouselIndex], `${bible.companyName.toLowerCase().replace(/\s+/g, '-')}-logo-v${overlayCarouselIndex + 1}.png`)}
-                            className="p-2 bg-slate-900/80 hover:bg-slate-800 text-white rounded-full backdrop-blur transition cursor-pointer"
-                            title="Download PNG"
-                          >
-                            <Download className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Carousel Thumbnail Strip */}
-                    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-indigo-500/20 scrollbar-track-transparent items-center justify-center">
-                      {allLogos.map((logoUrl, idx) => {
-                        const isSelected = idx === overlayCarouselIndex;
-                        const isPrimary = logoUrl === bible.primaryLogo;
-                        return (
-                          <button
-                            key={idx}
-                            onClick={() => setOverlayCarouselIndex(idx)}
-                            className={`relative w-16 h-16 rounded-xl border p-1 shrink-0 cursor-pointer transition-all duration-200 overflow-hidden ${
-                              isSelected
-                                ? 'border-indigo-500 bg-indigo-500/10 ring-2 ring-indigo-500 scale-105 shadow-md'
-                                : isDark
-                                  ? 'border-slate-800 bg-slate-950 hover:border-slate-700'
-                                  : 'border-slate-200 bg-white hover:border-slate-300'
-                            }`}
-                          >
-                            <img src={logoUrl} alt={`Thumb ${idx + 1}`} className="w-full h-full object-contain" referrerPolicy="no-referrer" />
-                            <span className="absolute bottom-1 right-1 text-[8px] font-mono font-bold px-1 rounded bg-slate-900/80 text-white">
-                              v{idx + 1}
-                            </span>
-                            {isPrimary && (
-                              <span className="absolute top-1 left-1 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-white" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* 3. SIDE-BY-SIDE COMPARE VIEW MODE */}
-                {overlayViewMode === 'compare' && (
-                  <div className="flex flex-col h-full space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 min-h-[360px]">
-                      {/* Left Logo Card (Option A) */}
-                      <div className={`border rounded-2xl p-4 flex flex-col justify-between ${
-                        isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}>
-                        <div className="flex items-center justify-between mb-3">
-                          <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
-                            <span>Option A:</span>
-                          </label>
-                          <select
-                            value={compareLogoAIndex}
-                            onChange={(e) => setCompareLogoAIndex(parseInt(e.target.value, 10))}
-                            className={`text-xs font-bold px-2.5 py-1.5 rounded-lg border focus:outline-none cursor-pointer ${
-                              isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-                            }`}
-                          >
-                            {allLogos.map((_, i) => (
-                              <option key={i} value={i}>
-                                Version {i + 1} {allLogos[i] === bible.primaryLogo ? '(Active Primary)' : ''}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className={`flex-1 rounded-xl border p-6 flex items-center justify-center min-h-[240px] relative overflow-hidden transition-all duration-300 ${
-                          overlayBg === 'light'
-                            ? 'bg-white border-slate-200'
-                            : overlayBg === 'checker'
-                              ? 'bg-slate-900 border-slate-800 bg-[radial-gradient(#475569_1px,transparent_1px)] [background-size:10px_10px]'
-                              : 'bg-slate-900 border-slate-800'
-                        }`}>
-                          <img
-                            src={allLogos[compareLogoAIndex] || allLogos[0]}
-                            alt={`Logo Compare A`}
-                            className="max-h-[35vh] max-w-full object-contain drop-shadow-md"
-                            referrerPolicy="no-referrer"
-                          />
-
-                          {allLogos[compareLogoAIndex] === bible.primaryLogo && (
-                            <span className="absolute top-3 right-3 bg-emerald-500 text-white px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 shadow">
-                              <Check className="w-3 h-3" /> Active Primary
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="mt-4 pt-3 border-t border-slate-800/40 flex items-center justify-between gap-2">
-                          <span className="text-xs font-mono text-slate-400 font-bold">
-                            Version {compareLogoAIndex + 1}
-                          </span>
-                          {allLogos[compareLogoAIndex] === bible.primaryLogo ? (
-                            <span className="text-xs font-bold text-emerald-400">Current Active Logo</span>
-                          ) : (
-                            <button
-                              onClick={() => handleRestoreLogo(allLogos[compareLogoAIndex])}
-                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow cursor-pointer transition flex items-center gap-1"
-                            >
-                              <Sparkles className="w-3.5 h-3.5 text-amber-300" /> Set Option A as Primary
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Right Logo Card (Option B) */}
-                      <div className={`border rounded-2xl p-4 flex flex-col justify-between ${
-                        isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}>
-                        <div className="flex items-center justify-between mb-3">
-                          <label className="text-xs font-bold text-slate-400 flex items-center gap-1.5">
-                            <span>Option B:</span>
-                          </label>
-                          <select
-                            value={compareLogoBIndex}
-                            onChange={(e) => setCompareLogoBIndex(parseInt(e.target.value, 10))}
-                            className={`text-xs font-bold px-2.5 py-1.5 rounded-lg border focus:outline-none cursor-pointer ${
-                              isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-                            }`}
-                          >
-                            {allLogos.map((_, i) => (
-                              <option key={i} value={i}>
-                                Version {i + 1} {allLogos[i] === bible.primaryLogo ? '(Active Primary)' : ''}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className={`flex-1 rounded-xl border p-6 flex items-center justify-center min-h-[240px] relative overflow-hidden transition-all duration-300 ${
-                          overlayBg === 'light'
-                            ? 'bg-white border-slate-200'
-                            : overlayBg === 'checker'
-                              ? 'bg-slate-900 border-slate-800 bg-[radial-gradient(#475569_1px,transparent_1px)] [background-size:10px_10px]'
-                              : 'bg-slate-900 border-slate-800'
-                        }`}>
-                          <img
-                            src={allLogos[compareLogoBIndex] || allLogos[1] || allLogos[0]}
-                            alt={`Logo Compare B`}
-                            className="max-h-[35vh] max-w-full object-contain drop-shadow-md"
-                            referrerPolicy="no-referrer"
-                          />
-
-                          {allLogos[compareLogoBIndex] === bible.primaryLogo && (
-                            <span className="absolute top-3 right-3 bg-emerald-500 text-white px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 shadow">
-                              <Check className="w-3 h-3" /> Active Primary
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="mt-4 pt-3 border-t border-slate-800/40 flex items-center justify-between gap-2">
-                          <span className="text-xs font-mono text-slate-400 font-bold">
-                            Version {compareLogoBIndex + 1}
-                          </span>
-                          {allLogos[compareLogoBIndex] === bible.primaryLogo ? (
-                            <span className="text-xs font-bold text-emerald-400">Current Active Logo</span>
-                          ) : (
-                            <button
-                              onClick={() => handleRestoreLogo(allLogos[compareLogoBIndex])}
-                              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow cursor-pointer transition flex items-center gap-1"
-                            >
-                              <Sparkles className="w-3.5 h-3.5 text-amber-300" /> Set Option B as Primary
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Footer */}
-              <div className={`p-3 sm:p-4 border-t text-center text-xs shrink-0 flex items-center justify-between px-6 ${
-                isDark ? 'border-slate-800 bg-slate-950/40 text-slate-400' : 'border-slate-100 bg-slate-50 text-slate-500'
-              }`}>
-                <span className="text-[11px]">
-                  <strong className="text-slate-300">Keyboard shortcuts:</strong> Press <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 font-mono text-[10px]">Esc</kbd> to close. Use Left/Right Arrow keys in Carousel view.
-                </span>
-                <span className="text-[11px] font-bold text-indigo-400">
-                  Selecting a logo updates primary mark &amp; palette sync instantly.
-                </span>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Automated Style Audit Modal */}
-      <AnimatePresence>
-        {showAuditModal && auditReport && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto font-sans"
-            onClick={() => setShowAuditModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 20 }}
-              onClick={(e) => e.stopPropagation()}
-              className={`border rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto relative ${
-                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-              }`}
-            >
-              {/* Modal Header */}
-              <div className="flex items-start justify-between border-b pb-5 border-slate-800">
-                <div className="flex items-center gap-3.5">
-                  <div className="p-3 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 rounded-2xl shrink-0">
-                    <ShieldCheck className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-emerald-500">
-                      Automated AI Quality Inspection
-                    </span>
-                    <h2 className="text-2xl font-black tracking-tight">
-                      Automated Style Audit & Readability Report
-                    </h2>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      WCAG 2.1 contrast analysis, font legibility, and brand archetype consistency for <span className="font-bold text-indigo-400">{bible.companyName}</span>.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  id="close-style-audit-modal-btn"
-                  onClick={() => setShowAuditModal(false)}
-                  className="p-2 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
-                >
-                  <XCircle className="w-6 h-6" />
-                </button>
-              </div>
-
-              {/* Top Banner: Overall Score & Executive Summary */}
-              <div className={`p-6 rounded-2xl border flex flex-col md:flex-row items-center gap-6 ${
-                isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
-              }`}>
-                {/* Score Circle / Badge */}
-                <div className="flex flex-col items-center justify-center p-5 bg-gradient-to-br from-emerald-500/20 to-indigo-500/20 border border-emerald-500/30 rounded-2xl min-w-[150px] text-center">
-                  <span className="text-4xl font-black tracking-tight text-emerald-400">
-                    {auditReport.overallScore}
-                    <span className="text-lg font-bold text-slate-400">/100</span>
-                  </span>
-                  <span className="text-[10px] uppercase font-bold tracking-wider mt-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                    {auditReport.overallScore >= 90 ? 'EXCELLENT' : auditReport.overallScore >= 75 ? 'PASSED' : 'NEEDS TWEAKS'}
-                  </span>
-                </div>
-
-                <div className="space-y-2 flex-1">
-                  <h3 className="text-lg font-bold text-emerald-400 leading-snug">
-                    {auditReport.ratingTagline || "Optimal WCAG 2.1 Accessibility & Cohesive Brand Archetype"}
-                  </h3>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    {auditReport.summary}
-                  </p>
-                </div>
-              </div>
-
-              {/* 3 Core Inspection Reports */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                {/* 1. Color Contrast & Accessibility */}
-                <div className={`p-5 rounded-2xl border space-y-3 flex flex-col justify-between ${
-                  isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50/80 border-slate-200'
-                }`}>
-                  <div className="space-y-2.5">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <Palette className="w-4 h-4 text-indigo-400" />
-                        <h4 className="font-bold text-xs uppercase tracking-wider">1. Color Contrast</h4>
-                      </div>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                        auditReport.colorContrastReport?.status === 'OPTIMAL' || auditReport.colorContrastReport?.status === 'PASSED'
-                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                          : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                      }`}>
-                        {auditReport.colorContrastReport?.score}/100 ‚Ä¢ {auditReport.colorContrastReport?.status}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-300 leading-relaxed">
-                      {auditReport.colorContrastReport?.details}
-                    </p>
-                  </div>
-                  {auditReport.colorContrastReport?.recommendations?.length > 0 && (
-                    <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
-                      <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400">Key Recommendations:</span>
-                      <ul className="space-y-1">
-                        {auditReport.colorContrastReport.recommendations.map((rec, idx) => (
-                          <li key={idx} className="text-[10px] text-slate-300 flex items-start gap-1.5 leading-snug">
-                            <Check className="w-3 h-3 text-emerald-400 shrink-0 mt-0.5" />
-                            <span>{rec}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-
-                {/* 2. Font Legibility & Scale */}
-                <div className={`p-5 rounded-2xl border space-y-3 flex flex-col justify-between ${
-                  isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50/80 border-slate-200'
-                }`}>
-                  <div className="space-y-2.5">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <Type className="w-4 h-4 text-purple-400" />
-                        <h4 className="font-bold text-xs uppercase tracking-wider">2. Font Legibility</h4>
-                      </div>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                        auditReport.fontLegibilityReport?.status === 'OPTIMAL' || auditReport.fontLegibilityReport?.status === 'PASSED'
-                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                          : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                      }`}>
-                        {auditReport.fontLegibilityReport?.score}/100 ‚Ä¢ {auditReport.fontLegibilityReport?.status}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-300 leading-relaxed">
-                      {auditReport.fontLegibilityReport?.details}
-                    </p>
-                  </div>
-                  {auditReport.fontLegibilityReport?.recommendations?.length > 0 && (
-                    <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
-                      <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400">Key Recommendations:</span>
-                      <ul className="space-y-1">
-                        {auditReport.fontLegibilityReport.recommendations.map((rec, idx) => (
-                          <li key={idx} className="text-[10px] text-slate-300 flex items-start gap-1.5 leading-snug">
-                            <Check className="w-3 h-3 text-emerald-400 shrink-0 mt-0.5" />
-                            <span>{rec}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-
-                {/* 3. Archetype Consistency */}
-                <div className={`p-5 rounded-2xl border space-y-3 flex flex-col justify-between ${
-                  isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50/80 border-slate-200'
-                }`}>
-                  <div className="space-y-2.5">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <Compass className="w-4 h-4 text-amber-400" />
-                        <h4 className="font-bold text-xs uppercase tracking-wider">3. Archetype Alignment</h4>
-                      </div>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                        auditReport.archetypeConsistencyReport?.status === 'OPTIMAL' || auditReport.archetypeConsistencyReport?.status === 'PASSED'
-                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                          : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                      }`}>
-                        {auditReport.archetypeConsistencyReport?.score}/100 ‚Ä¢ {auditReport.archetypeConsistencyReport?.status}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-300 leading-relaxed">
-                      {auditReport.archetypeConsistencyReport?.details}
-                    </p>
-                  </div>
-                  {auditReport.archetypeConsistencyReport?.recommendations?.length > 0 && (
-                    <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
-                      <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400">Key Recommendations:</span>
-                      <ul className="space-y-1">
-                        {auditReport.archetypeConsistencyReport.recommendations.map((rec, idx) => (
-                          <li key={idx} className="text-[10px] text-slate-300 flex items-start gap-1.5 leading-snug">
-                            <Check className="w-3 h-3 text-emerald-400 shrink-0 mt-0.5" />
-                            <span>{rec}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Actionable Precision Checklist */}
-              {auditReport.actionableImprovements?.length > 0 && (
-                <div className={`p-5 rounded-2xl border space-y-3 ${
-                  isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
-                }`}>
-                  <h4 className="font-bold text-xs uppercase tracking-wider flex items-center gap-2 text-indigo-400">
-                    <Sparkles className="w-4 h-4 text-amber-400" />
-                    Actionable Precision Enhancements
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                    {auditReport.actionableImprovements.map((item, idx) => (
-                      <div key={idx} className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl flex items-start gap-2.5">
-                        <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                        <span className="text-xs text-slate-200 leading-snug">{item}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Modal Actions Footer */}
-              <div className="flex items-center justify-between pt-4 border-t border-slate-800">
-                <button
-                  id="re-run-style-audit-btn"
-                  onClick={handleRunStyleAudit}
-                  disabled={isAuditing}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-full flex items-center gap-2 transition cursor-pointer shadow-md"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isAuditing ? 'animate-spin' : ''}`} />
-                  <span>{isAuditing ? 'Re-Auditing...' : 'Re-Run Style Audit'}</span>
-                </button>
-
-                <button
-                  id="close-audit-report-btn"
-                  onClick={() => setShowAuditModal(false)}
-                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-full transition cursor-pointer"
-                >
-                  Close Report
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ACCESSIBILITY AUDITOR REPORT MODAL */}
-      <AnimatePresence>
-        {showA11yAuditorModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto"
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className={`w-full max-w-5xl rounded-3xl border shadow-2xl p-6 sm:p-8 relative my-8 max-h-[90vh] overflow-y-auto font-sans text-left ${
-                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-              }`}
-            >
-              {/* Modal Header */}
-              <div className="flex items-start justify-between border-b pb-4 mb-6 border-slate-200 dark:border-slate-800">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 rounded-2xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
-                    <ShieldCheck className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-black uppercase tracking-widest bg-emerald-500/15 text-emerald-500 px-2.5 py-0.5 rounded-full">
-                        WCAG 2.1 Audit Standard
-                      </span>
-                      <span className="text-[10px] font-mono text-slate-400">
-                        {bible.companyName} Brand System
-                      </span>
-                    </div>
-                    <h2 className="text-xl font-black tracking-tight mt-1">
-                      Brand Accessibility & Contrast Auditor
-                    </h2>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowA11yAuditorModal(false)}
-                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Overview & Score Engine */}
-              {(() => {
-                const palette = bible.colorPalette || [];
-                const allPairs: { textCol: Color; bgCol: Color; ratio: number; level: 'AAA' | 'AA' | 'AA_LG' | 'FAIL' }[] = [];
-                
-                palette.forEach((textCol) => {
-                  palette.forEach((bgCol) => {
-                    if (textCol.hex !== bgCol.hex) {
-                      const ratio = getContrastRatio(bgCol.hex, textCol.hex);
-                      let level: 'AAA' | 'AA' | 'AA_LG' | 'FAIL' = 'FAIL';
-                      if (ratio >= 7.0) level = 'AAA';
-                      else if (ratio >= 4.5) level = 'AA';
-                      else if (ratio >= 3.0) level = 'AA_LG';
-                      allPairs.push({ textCol, bgCol, ratio, level });
-                    }
-                  });
-                });
-
-                const total = allPairs.length;
-                const aaaCount = allPairs.filter(p => p.level === 'AAA').length;
-                const aaCount = allPairs.filter(p => p.level === 'AA').length;
-                const aaLgCount = allPairs.filter(p => p.level === 'AA_LG').length;
-                const failCount = allPairs.filter(p => p.level === 'FAIL').length;
-
-                const scoreSum = allPairs.reduce((acc, p) => {
-                  if (p.level === 'AAA') return acc + 100;
-                  if (p.level === 'AA') return acc + 80;
-                  if (p.level === 'AA_LG') return acc + 40;
-                  return acc;
-                }, 0);
-                const healthScore = total > 0 ? Math.round(scoreSum / total) : 100;
-
-                let statusText = "Action Needed";
-                let statusStyle = "bg-rose-500/10 text-rose-500 border-rose-500/20";
-                if (healthScore >= 85) {
-                  statusText = "Excellent AAA Grade";
-                  statusStyle = "bg-emerald-500/10 text-emerald-500 border-emerald-500/20";
-                } else if (healthScore >= 65) {
-                  statusText = "Good AA Grade";
-                  statusStyle = "bg-indigo-500/10 text-indigo-500 border-indigo-500/20";
-                } else if (healthScore >= 45) {
-                  statusText = "Moderate Compliance";
-                  statusStyle = "bg-amber-500/10 text-amber-500 border-amber-500/20";
-                }
-
-                const filteredPairs = allPairs.filter(p => {
-                  if (a11yFilter === 'failing') return p.level === 'FAIL' || p.level === 'AA_LG';
-                  if (a11yFilter === 'aa') return p.level === 'AA';
-                  if (a11yFilter === 'aaa') return p.level === 'AAA';
-                  return true;
-                });
-
-                return (
-                  <div className="space-y-6">
-                    {/* Top Score Summary Banner */}
-                    <div className={`p-6 rounded-2xl border flex flex-col md:flex-row md:items-center justify-between gap-6 ${
-                      isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
-                    }`}>
-                      <div className="flex items-center gap-5">
-                        <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 text-center min-w-[110px]">
-                          <span className="text-3xl font-black font-mono text-indigo-400">{healthScore}%</span>
-                          <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 mt-0.5">Health Score</span>
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${statusStyle}`}>
-                              {statusText}
-                            </span>
-                            <span className="text-xs text-slate-400 font-mono">
-                              {aaaCount + aaCount} / {total} Pairs Pass AA
-                            </span>
-                          </div>
-                          <h3 className="text-base font-extrabold mt-1">
-                            WCAG 2.1 Contrast & Color Accessibility Assessment
-                          </h3>
-                          <p className="text-xs text-slate-400 mt-0.5 leading-relaxed max-w-xl">
-                            Evaluates contrast ratios between foreground text and background colors according to World Wide Web Consortium (W3C) guidelines to guarantee readability for all users.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        <button
-                          onClick={handleCopyA11yReport}
-                          className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-2 transition cursor-pointer"
-                        >
-                          <Copy className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>Copy Report</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Metric Stats Cards Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block">AAA Compliant</span>
-                        <span className="text-2xl font-black font-mono text-emerald-500">{aaaCount}</span>
-                        <span className="text-[9px] text-slate-400 block mt-0.5">Ratio ‚â• 7.0:1</span>
-                      </div>
-                      <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block">AA Compliant</span>
-                        <span className="text-2xl font-black font-mono text-indigo-500">{aaCount}</span>
-                        <span className="text-[9px] text-slate-400 block mt-0.5">Ratio 4.5 ‚Äì 6.9:1</span>
-                      </div>
-                      <div className={`p-4 rounded-xl border ${isDark ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-200'}`}>
-                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block">Large Text / UI Only</span>
-                        <span className="text-2xl font-black font-mono text-amber-500">{aaLgCount}</span>
-                        <span className="text-[9px] text-slate-400 block mt-0.5">Ratio 3.0 ‚Äì 4.4:1</span>
-                      </div>
-                      <div className={`p-4 rounded-xl border ${failCount > 0 ? 'bg-rose-500/5 border-rose-500/20' : isDark ? 'bg-slate-950/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-rose-400 block">Failing Pairings</span>
-                        <span className="text-2xl font-black font-mono text-rose-500">{failCount}</span>
-                        <span className="text-[9px] text-slate-400 block mt-0.5">Ratio &lt; 3.0:1 (Inaccessible)</span>
-                      </div>
-                    </div>
-
-                    {/* Interactive Filter Tabs */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3 border-slate-800">
-                      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800 text-xs font-bold">
-                        <button
-                          onClick={() => setA11yFilter('failing')}
-                          className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
-                            a11yFilter === 'failing' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          <span>Action Needed / Failing</span>
-                          <span className="px-1.5 py-0.2 text-[9px] rounded-full bg-black/30">{failCount + aaLgCount}</span>
-                        </button>
-                        <button
-                          onClick={() => setA11yFilter('aa')}
-                          className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
-                            a11yFilter === 'aa' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          AA Compliant ({aaCount})
-                        </button>
-                        <button
-                          onClick={() => setA11yFilter('aaa')}
-                          className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
-                            a11yFilter === 'aaa' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          AAA Compliant ({aaaCount})
-                        </button>
-                        <button
-                          onClick={() => setA11yFilter('all')}
-                          className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
-                            a11yFilter === 'all' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          All Pairings ({total})
-                        </button>
-                      </div>
-
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        Showing {filteredPairs.length} pairings
-                      </span>
-                    </div>
-
-                    {/* Pairwise Analysis Cards Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[420px] overflow-y-auto pr-2">
-                      {filteredPairs.map((pair, pIdx) => {
-                        const suggestedFixHex = calculateAdjustedCompliantColor(pair.bgCol.hex, pair.textCol.hex, 4.5);
-                        const suggestedFixRatio = getContrastRatio(pair.bgCol.hex, suggestedFixHex);
-                        const isFailing = pair.level === 'FAIL' || pair.level === 'AA_LG';
-
-                        let badgeStyle = "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
-                        let badgeText = "AAA Compliant";
-                        if (pair.level === 'AA') {
-                          badgeStyle = "text-indigo-400 bg-indigo-500/10 border-indigo-500/20";
-                          badgeText = "AA Compliant";
-                        } else if (pair.level === 'AA_LG') {
-                          badgeStyle = "text-amber-400 bg-amber-500/10 border-amber-500/20";
-                          badgeText = "Large Text Only (3.0+)";
-                        } else if (pair.level === 'FAIL') {
-                          badgeStyle = "text-rose-400 bg-rose-500/10 border-rose-500/20";
-                          badgeText = "Fails WCAG (<3.0)";
-                        }
-
-                        return (
-                          <div
-                            key={pIdx}
-                            className={`p-4 rounded-2xl border space-y-3 transition-all ${
-                              isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                            }`}
-                          >
-                            {/* Swatches & Live Preview Bar */}
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-1.5">
-                                  <span
-                                    className="w-4 h-4 rounded-full border border-black/20 shadow-xs shrink-0"
-                                    style={{ backgroundColor: pair.textCol.hex }}
-                                  />
-                                  <span className="text-xs font-bold truncate max-w-[90px]">{pair.textCol.name}</span>
-                                </div>
-                                <span className="text-[10px] text-slate-400">on</span>
-                                <div className="flex items-center gap-1.5">
-                                  <span
-                                    className="w-4 h-4 rounded-full border border-black/20 shadow-xs shrink-0"
-                                    style={{ backgroundColor: pair.bgCol.hex }}
-                                  />
-                                  <span className="text-xs font-bold truncate max-w-[90px]">{pair.bgCol.name}</span>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-mono font-black">{pair.ratio.toFixed(2)}:1</span>
-                                <span className={`text-[8px] font-extrabold uppercase px-2 py-0.5 rounded border ${badgeStyle}`}>
-                                  {badgeText}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Visual Card Sample */}
-                            <div
-                              className="p-3.5 rounded-xl border flex items-center justify-between"
-                              style={{ backgroundColor: pair.bgCol.hex, borderColor: `${pair.textCol.hex}30` }}
-                            >
-                              <span className="text-xs font-bold" style={{ color: pair.textCol.hex }}>
-                                Sample Text Legibility Preview
-                              </span>
-                              <button
-                                onClick={() => {
-                                  setContrastBg(pair.bgCol.hex);
-                                  setContrastText(pair.textCol.hex);
-                                  setShowA11yAuditorModal(false);
-                                }}
-                                className="text-[9px] font-extrabold uppercase px-2 py-1 rounded bg-black/20 hover:bg-black/40 text-white transition cursor-pointer"
-                              >
-                                Inspect in Sandbox
-                              </button>
-                            </div>
-
-                            {/* Actionable Fix Suggestion Box for failing pairs */}
-                            {isFailing && (
-                              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs space-y-2">
-                                <div className="flex items-start gap-1.5 text-rose-300">
-                                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                                  <p className="leading-snug text-[11px]">
-                                    {pair.level === 'FAIL'
-                                      ? `Ratio of ${pair.ratio.toFixed(2)}:1 fails WCAG AA minimum 4.5:1. Users with low vision or screen glare will struggle to read text.`
-                                      : `Ratio of ${pair.ratio.toFixed(2)}:1 passes only for large text (>18px). Not recommended for body copy.`}
-                                  </p>
-                                </div>
-
-                                <div className="pt-2 border-t border-rose-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-extrabold text-slate-300 uppercase">Suggested Fix:</span>
-                                    <div className="flex items-center gap-1">
-                                      <span
-                                        className="w-3.5 h-3.5 rounded-full border border-black/20 shrink-0"
-                                        style={{ backgroundColor: suggestedFixHex }}
-                                      />
-                                      <span className="font-mono text-[10px] font-bold text-emerald-400">
-                                        {suggestedFixHex.toUpperCase()} ({suggestedFixRatio.toFixed(1)}:1 AA)
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  <button
-                                    onClick={() => handleApplyA11yFixToPalette(pair.textCol.hex, suggestedFixHex, pair.textCol.name)}
-                                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[10px] transition cursor-pointer active:scale-95 shrink-0"
-                                  >
-                                    Apply Fix to Palette
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-
-                      {filteredPairs.length === 0 && (
-                        <div className="col-span-2 p-8 text-center border border-dashed rounded-2xl border-slate-800">
-                          <CheckCircle className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                          <p className="text-xs font-bold text-slate-300">No color pairs found in this filter category.</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Guidelines & Best Practices Checklist */}
-                    <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                      <h4 className="text-xs font-black uppercase tracking-wider text-indigo-400 flex items-center gap-2 mb-3">
-                        <Sparkles className="w-4 h-4 text-amber-400" />
-                        Actionable Accessibility Guidelines for {bible.companyName}
-                      </h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-300">
-                        <div className="flex items-start gap-2">
-                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                          <span><strong>Body Copy Baseline:</strong> Always pair high-contrast neutral backgrounds (#ffffff or #0f172a) with dark/light text to ensure 7.0:1+ AAA compliance.</span>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                          <span><strong>Interactive Buttons:</strong> Ensure button label text achieves at least 4.5:1 contrast against the button background fill.</span>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                          <span><strong>Accent Usage:</strong> Use bright accent colors for borders, badges, and decorative patterns rather than body copy.</span>
-                        </div>
-                        <div className="flex items-start gap-2">
-                          <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                          <span><strong>Typography Scale:</strong> For color pairs between 3.0:1 and 4.5:1, restrict font sizes to at least 18px (or 14px bold).</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Modal Footer */}
-                    <div className="flex items-center justify-between pt-4 border-t border-slate-800">
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        WCAG 2.1 Level AA/AAA Standard Audit Engine
-                      </span>
-                      <button
-                        onClick={() => setShowA11yAuditorModal(false)}
-                        className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-full transition cursor-pointer"
-                      >
-                        Done / Close Auditor
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* AI Palette Regeneration Modal */}
-      <AnimatePresence>
-        {showRegenPaletteModal && aiSuggestedPalette && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto font-sans"
-            onClick={() => setShowRegenPaletteModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 20 }}
-              onClick={(e) => e.stopPropagation()}
-              className={`border rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto relative ${
-                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-              }`}
-            >
-              {/* Header */}
-              <div className="flex items-start justify-between border-b pb-5 border-slate-800">
-                <div className="flex items-center gap-3.5">
-                  <div className="p-3 bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 rounded-2xl shrink-0">
-                    <Sparkles className="w-7 h-7 text-amber-400" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-indigo-400">
-                        AI Brand Strategy Consultant
-                      </span>
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                        Mission-Driven Synthesis
-                      </span>
-                    </div>
-                    <h2 className="text-2xl font-black tracking-tight mt-0.5">
-                      Fresh 5-Color Brand Palette Suggestion
-                    </h2>
-                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                      Synthesized directly from original mission: <strong className={isDark ? 'text-slate-200' : 'text-slate-800'}>"{bible.mission}"</strong>
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowRegenPaletteModal(false)}
-                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* AI Rationale Strategic Box */}
-              {aiSuggestedRationale && (
-                <div className={`p-4 rounded-2xl border flex items-start gap-3.5 ${
-                  isDark ? 'bg-indigo-950/30 border-indigo-900/50 text-indigo-200' : 'bg-indigo-50/70 border-indigo-200 text-indigo-950'
-                }`}>
-                  <Sparkles className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                  <div className="space-y-1 text-xs leading-relaxed">
-                    <strong className="block font-black text-indigo-400 uppercase tracking-wider text-[10px]">
-                      AI Strategic Rationale:
-                    </strong>
-                    <p className="font-sans text-xs">
-                      {aiSuggestedRationale}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* 5-Color Swatch Grid */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-extrabold flex items-center gap-2">
-                  <Palette className="w-4 h-4 text-indigo-400" />
-                  <span>Suggested 5-Color Design System:</span>
-                </h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
-                  {aiSuggestedPalette.map((color, idx) => (
-                    <div
-                      key={color.hex + idx}
-                      className="border border-slate-700/60 rounded-2xl p-3 flex flex-col justify-between space-y-4 shadow-md relative overflow-hidden group/swatch min-h-[160px]"
-                      style={{ backgroundColor: color.hex }}
-                    >
-                      <div className="flex items-center justify-between z-10">
-                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-black/40 text-white backdrop-blur-md">
-                          {color.role}
-                        </span>
-                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-white/90 text-slate-900 shadow-xs">
-                          {color.hex}
-                        </span>
-                      </div>
-
-                      <div className="p-2.5 rounded-xl bg-black/50 backdrop-blur-md text-white border border-white/10 z-10 space-y-1">
-                        <div className="text-xs font-black truncate">{color.name}</div>
-                        <div className="text-[9.5px] text-slate-200 leading-tight line-clamp-3">
-                          {color.usageNote}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Fine-Tuning Optional Input & Regeneration Bar */}
-              <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 ${
-                isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-              }`}>
-                <div className="flex-1 flex items-center gap-2">
-                  <Sliders className="w-4 h-4 text-indigo-400 shrink-0" />
-                  <input
-                    type="text"
-                    value={customPaletteFocus}
-                    onChange={(e) => setCustomPaletteFocus(e.target.value)}
-                    placeholder="Optional: Fine-tune vibe (e.g. 'Warm Sunset', 'High-Tech Dark', 'Minimalist Pastel')"
-                    className={`w-full px-3.5 py-2 rounded-xl border text-xs font-sans focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                      isDark ? 'bg-slate-900 border-slate-700 text-white placeholder-slate-500' : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400'
-                    }`}
-                  />
-                </div>
-
-                <button
-                  onClick={() => handleRegenerateAiPalette(customPaletteFocus)}
-                  disabled={isRegeneratingAiPalette}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer shrink-0"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isRegeneratingAiPalette ? 'animate-spin' : ''}`} />
-                  <span>Re-Analyze Mission</span>
-                </button>
-              </div>
-
-              {/* Footer Actions */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
-                <button
-                  onClick={() => setShowRegenPaletteModal(false)}
-                  className={`px-5 py-2.5 rounded-2xl text-xs font-bold transition cursor-pointer ${
-                    isDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                  }`}
-                >
-                  Cancel
-                </button>
-
-                <button
-                  id="apply-regenerated-palette-btn"
-                  onClick={handleApplyAiPalette}
-                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-black flex items-center gap-2 transition shadow-lg shadow-indigo-500/25 cursor-pointer active:scale-95"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>Apply to Brand Bible</span>
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Floating Toast Notification */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 20, scale: 0.9 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-            className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 rounded-2xl border shadow-xl font-sans text-xs transition-colors duration-300 ${
-              isDark
-                ? 'bg-slate-900 border-slate-800 text-slate-100 shadow-slate-950/50'
-                : 'bg-white border-slate-100 text-slate-800 shadow-slate-200/50'
-            }`}
-          >
-            <div
-              className="w-5 h-5 rounded-full border border-white/20 shadow-inner shrink-0"
-              style={{ backgroundColor: toast.hex }}
-            />
-            <div className="flex flex-col">
-              <span className="font-extrabold flex items-center gap-1">
-                <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                Copied!
-              </span>
-              <span className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                {toast.message}
-              </span>
-            </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setToast(null);
-              }}
-              className={`p-1 rounded-full transition ml-2 cursor-pointer ${
-                isDark ? 'hover:bg-slate-800 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600'
-              }`}
-            >
-              <XCircle className="w-3.5 h-3.5" />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
+          xúÏZkS€H˝û_—„§ÇôâlŸ'∞
+SCUxÏd∑ñ¢í∂›ñ{ê‘™VL<˛Ôsª%[Ônª3S[Òc§~ﬂsœ=˜J?úLÁÑ_2óéüY´KçW%Ì◊üˆ˛+Ì˝E˚GÙO†!;$D?∂ó⁄Ê{czèF.√sÏëACÊŒAÇV∑µç\2Í«ƒ%sDÒBkD|A8rp`u‡Œ7´c7ˆµ”¿DaÄ˝‘LãØ¡‹Í¢‡—≤aŒf˛òåë sa›tÏ`~ã&Ãñ«|˝2wå¬)≥+Ù–õÖaBÑh¯Û;tÄ6Üé∫Xkg€nÔÿ—4—ïûm£!„cÿOÙ'æ˛¡∂7–ÆÍ˙0ÖmÁ∫ΩØË÷ÖnÜÖ-ø.MáÖ–˝Ç¬ÅÃ—O®£7 úl[≠i»GÇﬁÙˆ-jÁœõ´Á@<¬±;∂∂Ì¯(‘¡†;ZìôÎ∆∆‹Y€RY∞F)À™∂!ˆC#¶‘Bèßdtó^ÈÉ’CS´◊ WAÒñ/9ı04Ô∫÷Qn\™>U√K∆˜åSÂjé„*èCú:Sav⁄·LÊñ…¸c‡ñª¡¢I6—`ôÜ¥BXƒ%gv∞†Ãon˛√ÿ)Z˝j3üò√ö.|˝ ]cÁ•	⁄i∫(0ì:+ı+¢°ˆÜxt7ÜçXCw∆ë‡ '*w§»
+çf<d‹
+U¨≈%∞√òJ8Iﬁ	b¯z„iƒ|c€Ì~Ü8∂†ﬂî›æ´.™±íkôé;u®ƒ–BP·¬È≠ñﬂ∏"LÑ&úyk ÜXs„Lr%◊W˙°ç|ˇ¡\d,é	fö™Ô7Î%mL®ÎZ`t†No∂%„úv¯v‰5¸Ïy≤è§˘C$ˇqÒ„Û#ıC",`ˇtLÉ”å® D 1∞"ÉÆÆv$\ég\9òå%î¯€,tÚòf». ∑[#Ã÷¢Ü49‘‰Ñ`€—·cÿaH‹S¢ö*P’ äÙü)y8cc“‹≈cm‘¡»(±"ﬂÃπV«Œ8$xä	%M ±CªN⁄lÍÁÑq/3a,0ä^¬…O‰óçˇ0√∑ü»=ú`≠Œ÷4Ñ96Ó…¡O˝lh‹ˇ€jòº+Ì_˙vãû®+j‚≥Ä–)ˆ«.π"°x6 òAëá ñ:ÃÍßi7æñ◊6:0÷–à∑*)9´bêdjÛ@œOuR#ıÙí±Å¶ÖíSåIÆ<ı'Ã@Óyj˜(∆jÒ@à¡bnR•≈<'…c‚Ï¶#±Ä´Ù$+TL]Hn‘»NaÕ*¶†◊usá:r˜i˛ÃÛÁN2∂P*€PWRÆùR^Ò’D{IÁ.ı…}÷Ï(◊DH7ÆóÖ‘Û*Ì¡<jØÌ1	îñ¶UE4^ñŒ[1¥-\ìû⁄m°„√´ã_ØO>°œß'ˇBgOJ}v¡≤rîHâHÏ∫0aÀ%æ#¶hŸU@Õ˚Ωry˘eçò´`ê›ˆ+¸>7Ë‚+'‡µ“]¢x··πı`uÁ.ÍNKzp!. ÷≥LÇç[ÆNY‚;r¢≥reíTùF$é'‘1vÛ≥åd!\óÆd≥¢B±EÍÈé«ªñ#ˇ¬∂õØ∑ﬁoo˜wæ cæS`ô%»ˇ7o—çLÚu†VHøë]Y7˙¢äG∫ïÏVRﬁW√¿{‘s*Á˘h∞XÅÙÜïË€jW∆Æ D%Ã˛fQ6Ä"zM&òu ∆ióÍ'˛FFº¿$h  ∆ñó|Êìj˛{F≥∫|)ô·2¬à˝tïKSê…ó™º% —-Ô«? «6†4œ'Í bT¯π©·›≤dQUO∑‡D{πÚD:y|_ñ˝ßUhE}2-@ÎÜ¨X\™ÑŒ5?¡
+—!ÁÏa≥™ó&íÄ~ºÁÃWÉdT§ÃÛ∑5*“Â˛g6.≥ÔX>∂ÒOO∑qTá˙˘GÕ+UR|©Ö£Q˛ã&÷â˙ÅæUQ8ﬁ™î„Ö
+vFÊû+d∏F‚W0b¥»°´í¡¥¬€.– „!∫§DäR6÷´s≥.7*r˝¢¥z4eÑ`.=Â—Í\•~R^"Û©~L%ÓµùHõëñ=tX’6π≥¬Â~úd3{S>f"Õ
+#T¶O‘Ì=–ÌgóáW'œìÌÃìÚ≠\µP∑Ælw8#˘%e{huê7ﬁM˛Ì*{˜%∆™∏AÓ%äXjE4ÿÑ.´~ÓR–¯rÇ!_#°X*ı{˘CÀ gì´AMıÆS±πcéµ°π.‚5,,ÒÆ§§∆#Ó±;ÉSçÒ!qq®HEG)@W@QY?›pú†y>ÛÜÑ7IK`Ó—R3È‚{ˆëSëhíÿD÷ì K?yJê`x¢Tf‰|&Ú>[¶ÓÊûGûn\ô≈D]≤†£Æ$ºy8h6øºCTùΩæ*¥«≈Ãw‰q∞†ÀïπÈrˇ3·a\∞äBh˘Ë≠"çbòÉ3kF¨π?,⁄kGËVÆ≥9∞ÆB®¬eR".‰ïõîä∏ñ§r®gum≠¶@<±SN≠˛÷u›t%°L'Â*	lñÙEÇÍb¿üùÚ?3±7ºê!ì˚\_ ™€• ‘ëΩëº—xj÷›–f”:ï]âùƒñ10÷ÙﬂÉ`Â&ˇ“ xÙ“ xÙ=~Ç©œ_èæ¡ˇﬂ xTÇG∑ X˚F¡GJ⁄U=@+øæqØ}ËÉr…IH¸Y«ÊË•]
+tLË(*˜'°xØ–s5˙B®~π‹y/YHfÂ‘ßê6X,VÔ+Ì"˚ÇÔ.¸Qo-¿Ö÷Œv˛]ÕüÈÿQì~ù|'2ß¢d™é~™Ã≥s:'c¿∞ÃìrCïZ˚Ëõˆ´RR/CÒÎ9=R(ıí◊Lã\P'2}»‘§ÍG•ùºf„Ph9¢^mÕøê¬©gŸäGWô(!àcÊ2æãHZS8âe·’:}°Tízc?BYÀ#aà≤,cÛÚc±NØpﬁÙaÂWK◊	≠Nvóπ‚˘[˜VedÜ‹[ûûku≤Âæº˜Ô˝ªnIØ¨˜"Ô?ïKƒq5„œËd0.–c7Õó„ItK›YœB√ãÄ¯ÉE8eŸ&…KS∞ê§Lq]h›ú`7$)√(Ì1X®?À‘t“AÒ+,…u<SqE‰p*í“ãêì*¿Bb<ΩCÄÃ¬{àk¨,P∫›Æ¸BøˇÀ¢ë¯%êâ‰∆æ=h≈w7^˜{˝˛§≥Åñôw‰®‘#l&öeê|áz€∂ùÍ±&ßv•ΩÆß—'p¬¢Ω‘=y´⁄^™I-[%-_dßÀÎ¿ª]æ˙  ˇˇ µ‘’

@@ -1,7 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage, BrandBible, Color } from '../types';
 import { safeFetchJson } from '../utils/api';
-import { Send, Sparkles, User, BrainCircuit, AlertCircle, Palette, Check, RefreshCw, Target, ArrowRight } from 'lucide-react';
+import { Send, Sparkles, User, BrainCircuit, AlertCircle, Palette, Check, RefreshCw, Target, ArrowRight, Mic, MicOff } from 'lucide-react';
+
+const getSpeechRecognition = () => {
+  if (typeof window === 'undefined') return null;
+  return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
+};
 
 interface ConsultantChatProps {
   brandBible: BrandBible | null;
@@ -56,6 +61,188 @@ export default function ConsultantChat({ brandBible, onUpdatePalette, onUpdateBr
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Web Speech API State
+  const [isListening, setIsListening] = useState(false);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+  const [isSpeechSupported, setIsSpeechSupported] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const baseInputRef = useRef<string>('');
+
+  // Mission refinement speech state
+  const [isMissionListening, setIsMissionListening] = useState(false);
+  const missionRecognitionRef = useRef<any>(null);
+  const baseMissionRef = useRef<string>('');
+
+  useEffect(() => {
+    setIsSpeechSupported(Boolean(getSpeechRecognition()));
+
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
+      if (missionRecognitionRef.current) {
+        try {
+          missionRecognitionRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, []);
+
+  const toggleListening = () => {
+    const SpeechRecognitionClass = getSpeechRecognition();
+    if (!SpeechRecognitionClass) {
+      setSpeechError('Web Speech API is not supported in this browser. Please use Chrome, Edge, or Safari.');
+      setTimeout(() => setSpeechError(null), 5000);
+      return;
+    }
+
+    if (isListening) {
+      try {
+        recognitionRef.current?.stop();
+      } catch (err) {
+        console.error('Error stopping speech recognition:', err);
+      }
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognitionClass();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      baseInputRef.current = userInput.trim();
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setSpeechError(null);
+      };
+
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = 0; i < event.results.length; ++i) {
+          transcript += event.results[i][0].transcript;
+        }
+        const lower = transcript.toLowerCase();
+        if (
+          lower.includes('switch to dark mode') ||
+          lower.includes('turn on dark mode') ||
+          lower.includes('enable dark mode') ||
+          lower.includes('activate dark mode') ||
+          lower.includes('set theme to dark')
+        ) {
+          window.dispatchEvent(new CustomEvent('app-voice-theme-command', { detail: 'dark' }));
+        } else if (
+          lower.includes('switch to light mode') ||
+          lower.includes('turn on light mode') ||
+          lower.includes('enable light mode') ||
+          lower.includes('activate light mode') ||
+          lower.includes('set theme to light')
+        ) {
+          window.dispatchEvent(new CustomEvent('app-voice-theme-command', { detail: 'light' }));
+        }
+
+        const base = baseInputRef.current;
+        const fullText = base ? `${base} ${transcript.trim()}` : transcript.trim();
+        setUserInput(fullText);
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('Speech recognition error:', event.error);
+        if (event.error === 'not-allowed') {
+          setSpeechError('Microphone access was denied. Please allow microphone access in your browser settings.');
+        } else if (event.error === 'audio-capture') {
+          setSpeechError('No microphone detected. Please connect an audio input device.');
+        } else if (event.error === 'network') {
+          setSpeechError('Speech recognition network error. Please check your internet connection.');
+        } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          setSpeechError(`Voice input error: ${event.error}`);
+        }
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err: any) {
+      console.error('Failed to start speech recognition:', err);
+      setSpeechError(err.message || 'Failed to initialize microphone.');
+      setIsListening(false);
+    }
+  };
+
+  const toggleMissionListening = () => {
+    const SpeechRecognitionClass = getSpeechRecognition();
+    if (!SpeechRecognitionClass) {
+      setSpeechError('Web Speech API is not supported in this browser.');
+      setTimeout(() => setSpeechError(null), 4000);
+      return;
+    }
+
+    if (isMissionListening) {
+      try {
+        missionRecognitionRef.current?.stop();
+      } catch (err) {
+        console.error('Error stopping mission recognition:', err);
+      }
+      setIsMissionListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognitionClass();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      baseMissionRef.current = customMissionText.trim();
+
+      recognition.onstart = () => {
+        setIsMissionListening(true);
+        setSpeechError(null);
+      };
+
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = 0; i < event.results.length; ++i) {
+          transcript += event.results[i][0].transcript;
+        }
+        const base = baseMissionRef.current;
+        const fullText = base ? `${base} ${transcript.trim()}` : transcript.trim();
+        setCustomMissionText(fullText);
+      };
+
+      recognition.onerror = (event: any) => {
+        if (event.error === 'not-allowed') {
+          setSpeechError('Microphone permission denied.');
+        } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          setSpeechError(`Speech error: ${event.error}`);
+        }
+        setIsMissionListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsMissionListening(false);
+      };
+
+      missionRecognitionRef.current = recognition;
+      recognition.start();
+    } catch (err: any) {
+      setSpeechError(err.message || 'Failed to initialize microphone.');
+      setIsMissionListening(false);
+    }
+  };
+
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const scrollToBottom = () => {
@@ -106,6 +293,23 @@ export default function ConsultantChat({ brandBible, onUpdatePalette, onUpdateBr
     refinedMissionText?: string
   ) => {
     if (!textToSend.trim() || isLoading) return;
+
+    if (isListening && recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
+      setIsListening(false);
+    }
+    if (isMissionListening && missionRecognitionRef.current) {
+      try {
+        missionRecognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
+      setIsMissionListening(false);
+    }
 
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,

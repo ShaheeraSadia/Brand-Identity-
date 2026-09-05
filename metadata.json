@@ -1,6 +1,6 @@
 {
   "name": "Brand Identity Generator",
-  "description": "Generate a comprehensive Brand Bible with logos, 5-color palettes, and suggested Google Font pairings based on your company mission, with a built-in brand consultant chatbot.",
-  "requestFramePermissions": [],
+  "description": "Generate a comprehensive Brand Bible with logos, 5-color palettes, suggested Google Font pairings, social media profile banners, marketing templates, an AI-powered Brand Voice Editor, and jsPDF-powered professional PDF specification export.",
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
