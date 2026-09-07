@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { BrandBible } from './types';
+import { BrandBible, FontPairing } from './types';
 import { safeFetchJson } from './utils/api';
 import { SAMPLE_BRAND_BIBLES } from './utils/sampleData';
 import { decodeBrandBibleFromHash, encodeBrandBibleToHash, generateShareableUrl } from './utils/share';
@@ -10,13 +10,19 @@ import BrandMockups from './components/BrandMockups';
 import ConsultantChat from './components/ConsultantChat';
 import AboutPage from './components/AboutPage';
 import ContactPage from './components/ContactPage';
+import FontPlayground from './components/FontPlayground';
+import PrivacyPolicyPage from './components/PrivacyPolicyPage';
+import TermsPage from './components/TermsPage';
+import CookieConsentBanner from './components/CookieConsentBanner';
+import AdBanner from './components/AdBanner';
 import { PdfExportModal } from './components/PdfExportModal';
 import { ShareLinkModal } from './components/ShareLinkModal';
 import { KeyboardShortcutsTooltip } from './components/KeyboardShortcutsTooltip';
-import { Sparkles, Layers, BookOpen, Clock, AlertCircle, Trash2, Check, RefreshCw, FileText, Monitor, Briefcase, Sun, Moon, Palette, Type, Compass, Zap, Plus, Info, Mail, Mic, Share2, Keyboard } from 'lucide-react';
+import { Sparkles, Layers, BookOpen, Clock, AlertCircle, Trash2, Check, RefreshCw, FileText, Monitor, Briefcase, Sun, Moon, Palette, Type, Compass, Zap, Plus, Info, Mail, Mic, Share2, Keyboard, Menu, X, Search } from 'lucide-react';
 
 export default function App() {
   const [activeBible, setActiveBible] = useState<BrandBible | null>(null);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [showPdfExportModal, setShowPdfExportModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [headerShareCopied, setHeaderShareCopied] = useState(false);
@@ -36,12 +42,34 @@ export default function App() {
 
   const isMac = typeof window !== 'undefined' && /(Mac|iPhone|iPod|iPad)/i.test(navigator?.userAgent || '');
   const [savedBibles, setSavedBibles] = useState<BrandBible[]>([]);
+  const [savedBrandsSearch, setSavedBrandsSearch] = useState('');
+
+  const filteredSavedBibles = useMemo(() => {
+    if (!savedBrandsSearch.trim()) return savedBibles;
+    const q = savedBrandsSearch.toLowerCase().trim();
+    return savedBibles.filter((bible) => {
+      const matchName = bible.companyName?.toLowerCase().includes(q);
+      const matchIndustry = bible.industry?.toLowerCase().includes(q);
+      return matchName || matchIndustry;
+    });
+  }, [savedBibles, savedBrandsSearch]);
+
   const [isLoadingBible, setIsLoadingBible] = useState(false);
   const [isLoadingLogo, setIsLoadingLogo] = useState(false);
   const [logoSize, setLogoSize] = useState<'1K' | '2K' | '4K'>('1K');
   const [error, setError] = useState<string | null>(null);
   const [activeMainTab, setActiveMainTab] = useState<'bible' | 'mockups'>('bible');
-  const [activeViewPage, setActiveViewPage] = useState<'studio' | 'about' | 'contact'>('studio');
+  const [activeViewPage, setActiveViewPage] = useState<'studio' | 'about' | 'contact' | 'font-playground' | 'privacy' | 'terms'>('studio');
+
+  const handleApplyFontPairing = (newPairing: FontPairing) => {
+    if (activeBible) {
+      const updated: BrandBible = {
+        ...activeBible,
+        typography: newPairing
+      };
+      saveBibleToStorage(updated);
+    }
+  };
   const [isDark, setIsDark] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('brand_generator_theme');
@@ -236,6 +264,37 @@ export default function App() {
       window.history.replaceState(null, '', `#brand=${activeBible.id}`);
     }
   }, [activeBible?.id]);
+
+  // Handle mobile navigation lifecycle: close on escape, close on resize >= 1024, lock body scroll
+  useEffect(() => {
+    if (!isMobileNavOpen) {
+      document.body.style.overflow = '';
+      return;
+    }
+
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMobileNavOpen(false);
+      }
+    };
+
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) {
+        setIsMobileNavOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [isMobileNavOpen]);
 
   // Sync active typography font sheets dynamically to document head
   useEffect(() => {
@@ -508,25 +567,25 @@ export default function App() {
       <header className={`sticky top-0 z-40 backdrop-blur-md border-b transition-all duration-300 ${
         isDark ? 'bg-slate-900/95 border-slate-800 text-slate-100 shadow-lg shadow-slate-950/20' : 'bg-white/90 border-slate-200/80 text-slate-800 shadow-sm'
       }`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveViewPage('studio')}>
-            <div className="bg-indigo-600 text-white p-2.5 rounded-xl shadow-md shadow-indigo-100 flex items-center justify-center">
-              <Layers className="w-5 h-5" />
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
+          <div className="flex items-center gap-2.5 sm:gap-3 cursor-pointer shrink-0 min-w-0" onClick={() => { setActiveViewPage('studio'); setIsMobileNavOpen(false); }}>
+            <div className="bg-indigo-600 text-white p-2 sm:p-2.5 rounded-xl shadow-md shadow-indigo-100 dark:shadow-none flex items-center justify-center shrink-0">
+              <Layers className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <h1 className={`text-base font-black tracking-tight font-sans transition-colors duration-300 ${isDark ? 'text-white' : 'text-slate-800'}`}>
+            <div className="min-w-0">
+              <h1 className={`text-xs xs:text-sm sm:text-base font-black tracking-tight font-sans truncate transition-colors duration-300 ${isDark ? 'text-white' : 'text-slate-800'}`}>
                 Brand Identity Generator
               </h1>
-              <p className={`text-[10px] font-sans font-medium transition-colors duration-300 ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
-                Chief Design Suite & Brand Bible Dashboard
+              <p className={`text-[10px] font-sans font-medium hidden md:block transition-colors duration-300 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                Chief Design Suite &amp; Brand Bible Dashboard
               </p>
             </div>
           </div>
 
-          {/* Navigation Items */}
-          <nav className="flex items-center gap-1 p-1 rounded-2xl border transition-colors ${
+          {/* Desktop Navigation Items (Visible on lg: 1024px+) */}
+          <nav className={`hidden lg:flex items-center gap-1 p-1 rounded-2xl border transition-colors ${
             isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-100/80 border-slate-200'
-          }">
+          }`}>
             <button
               id="nav-studio-btn"
               onClick={() => setActiveViewPage('studio')}
@@ -538,6 +597,19 @@ export default function App() {
             >
               <Layers className="w-3.5 h-3.5" />
               <span>Studio</span>
+            </button>
+
+            <button
+              id="nav-font-playground-btn"
+              onClick={() => setActiveViewPage('font-playground')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold font-sans flex items-center gap-1.5 transition-all cursor-pointer ${
+                activeViewPage === 'font-playground'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Type className="w-3.5 h-3.5" />
+              <span>Font Playground</span>
             </button>
 
             <button
@@ -567,8 +639,9 @@ export default function App() {
             </button>
           </nav>
 
-          <div className="flex items-center gap-3">
-            {/* Quick Shareable Link Button (Visible when Brand Bible is active) */}
+          {/* Action buttons area */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            {/* Quick Shareable Link Button (Visible on sm+ screens when active brand exists) */}
             {activeBible && (
               <button
                 id="header-shareable-link-btn"
@@ -587,7 +660,7 @@ export default function App() {
                     console.error("Failed to share link:", e);
                   }
                 }}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-bold font-sans flex items-center gap-1.5 transition border shadow-xs cursor-pointer ${
+                className={`hidden sm:inline-flex px-3 py-1.5 rounded-full text-xs font-bold font-sans items-center gap-1.5 transition border shadow-xs cursor-pointer ${
                   headerShareCopied
                     ? 'bg-emerald-600 border-emerald-500 text-white'
                     : isDark
@@ -601,82 +674,97 @@ export default function App() {
                 ) : (
                   <Share2 className="w-3.5 h-3.5 text-indigo-400" />
                 )}
-                <span className="hidden sm:inline">{headerShareCopied ? "Link Copied!" : "Shareable Link"}</span>
+                <span className="hidden xl:inline">{headerShareCopied ? "Link Copied!" : "Shareable Link"}</span>
               </button>
             )}
 
-            {/* Quick Export PDF Modal Button (Visible when Brand Bible is active) */}
+            {/* Quick Export PDF Modal Button (Visible when active brand exists) */}
             {activeBible && (
-              <button
-                id="header-export-pdf-modal-btn"
-                onClick={() => setShowPdfExportModal(true)}
-                className="px-3.5 py-1.5 rounded-full text-xs font-bold font-sans flex items-center gap-1.5 transition bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white shadow-xs cursor-pointer"
-                title="Export Brand Specification PDF (Ctrl+E / ⌘E)"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Export PDF</span>
-              </button>
+              <>
+                {/* Mobile compact PDF button */}
+                <button
+                  id="header-export-pdf-modal-mobile-btn"
+                  onClick={() => setShowPdfExportModal(true)}
+                  className="sm:hidden p-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white shadow-xs cursor-pointer flex items-center justify-center"
+                  title="Export Brand Specification PDF"
+                >
+                  <FileText className="w-4 h-4" />
+                </button>
+
+                {/* Tablet and Desktop PDF button */}
+                <button
+                  id="header-export-pdf-modal-btn"
+                  onClick={() => setShowPdfExportModal(true)}
+                  className="hidden sm:inline-flex px-3 py-1.5 rounded-full text-xs font-bold font-sans items-center gap-1.5 transition bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white shadow-xs cursor-pointer"
+                  title="Export Brand Specification PDF (Ctrl+E / ⌘E)"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Export PDF</span>
+                </button>
+              </>
             )}
 
-            {/* Keyboard Shortcuts Info Tooltip */}
-            <KeyboardShortcutsTooltip
-              isDark={isDark}
-              activeBibleName={activeBible?.companyName}
-              externalFeedback={shortcutFeedback ? shortcutFeedback.message : null}
-              onTriggerSave={() => {
-                if (activeBible) {
-                  saveBibleToStorage(activeBible);
-                  triggerShortcutFeedback(`Saved "${activeBible.companyName}" to Local Storage`, `${isMac ? '⌘' : 'Ctrl'}+S`);
-                } else {
-                  triggerShortcutFeedback('No active brand to save yet.', `${isMac ? '⌘' : 'Ctrl'}+S`);
-                }
-              }}
-              onTriggerMockups={() => {
-                if (activeBible) {
-                  setActiveViewPage('studio');
-                  setActiveMainTab(prev => {
-                    const next = prev === 'mockups' ? 'bible' : 'mockups';
-                    triggerShortcutFeedback(
-                      `Switched to ${next === 'mockups' ? 'Dynamic Mockups' : 'Brand Bible Dashboard'}`,
-                      `${isMac ? '⌘' : 'Ctrl'}+M`
-                    );
-                    return next;
-                  });
-                } else {
-                  triggerShortcutFeedback('Select or generate a brand first.', `${isMac ? '⌘' : 'Ctrl'}+M`);
-                }
-              }}
-              onTriggerRegenerateLogo={() => {
-                if (activeBible) {
-                  if (!isLoadingLogo) {
-                    triggerShortcutFeedback(`Regenerating AI Brand Logo for "${activeBible.companyName}"...`, `${isMac ? '⌘' : 'Ctrl'}+G`);
-                    handleRegenerateLogo();
+            {/* Keyboard Shortcuts Info Tooltip (Hidden on small touch devices) */}
+            <div className="hidden md:inline-flex">
+              <KeyboardShortcutsTooltip
+                isDark={isDark}
+                activeBibleName={activeBible?.companyName}
+                externalFeedback={shortcutFeedback ? shortcutFeedback.message : null}
+                onTriggerSave={() => {
+                  if (activeBible) {
+                    saveBibleToStorage(activeBible);
+                    triggerShortcutFeedback(`Saved "${activeBible.companyName}" to Local Storage`, `${isMac ? '⌘' : 'Ctrl'}+S`);
                   } else {
-                    triggerShortcutFeedback('Logo is currently generating...', `${isMac ? '⌘' : 'Ctrl'}+G`);
+                    triggerShortcutFeedback('No active brand to save yet.', `${isMac ? '⌘' : 'Ctrl'}+S`);
                   }
-                } else {
-                  triggerShortcutFeedback('No active brand to regenerate logo for.', `${isMac ? '⌘' : 'Ctrl'}+G`);
-                }
-              }}
-              onTriggerExportPdf={() => {
-                if (activeBible) {
-                  setShowPdfExportModal(true);
-                  triggerShortcutFeedback('Opened Brand Specification PDF Export', `${isMac ? '⌘' : 'Ctrl'}+E`);
-                }
-              }}
-              onTriggerShareLink={() => {
-                if (activeBible) {
-                  setShowShareModal(true);
-                  triggerShortcutFeedback('Opened Shareable Link Modal', `${isMac ? '⌘' : 'Ctrl'}+Shift+L`);
-                }
-              }}
-            />
+                }}
+                onTriggerMockups={() => {
+                  if (activeBible) {
+                    setActiveViewPage('studio');
+                    setActiveMainTab(prev => {
+                      const next = prev === 'mockups' ? 'bible' : 'mockups';
+                      triggerShortcutFeedback(
+                        `Switched to ${next === 'mockups' ? 'Dynamic Mockups' : 'Brand Bible Dashboard'}`,
+                        `${isMac ? '⌘' : 'Ctrl'}+M`
+                      );
+                      return next;
+                    });
+                  } else {
+                    triggerShortcutFeedback('Select or generate a brand first.', `${isMac ? '⌘' : 'Ctrl'}+M`);
+                  }
+                }}
+                onTriggerRegenerateLogo={() => {
+                  if (activeBible) {
+                    if (!isLoadingLogo) {
+                      triggerShortcutFeedback(`Regenerating AI Brand Logo for "${activeBible.companyName}"...`, `${isMac ? '⌘' : 'Ctrl'}+G`);
+                      handleRegenerateLogo();
+                    } else {
+                      triggerShortcutFeedback('Logo is currently generating...', `${isMac ? '⌘' : 'Ctrl'}+G`);
+                    }
+                  } else {
+                    triggerShortcutFeedback('No active brand to regenerate logo for.', `${isMac ? '⌘' : 'Ctrl'}+G`);
+                  }
+                }}
+                onTriggerExportPdf={() => {
+                  if (activeBible) {
+                    setShowPdfExportModal(true);
+                    triggerShortcutFeedback('Opened Brand Specification PDF Export', `${isMac ? '⌘' : 'Ctrl'}+E`);
+                  }
+                }}
+                onTriggerShareLink={() => {
+                  if (activeBible) {
+                    setShowShareModal(true);
+                    triggerShortcutFeedback('Opened Shareable Link Modal', `${isMac ? '⌘' : 'Ctrl'}+Shift+L`);
+                  }
+                }}
+              />
+            </div>
 
-            {/* Voice Theme Listener Button */}
+            {/* Voice Theme Listener Button (Hidden on phones, available in drawer) */}
             <button
               id="voice-theme-listener-btn"
               onClick={toggleVoiceThemeListener}
-              className={`p-2.5 rounded-full border transition-all duration-300 flex items-center justify-center cursor-pointer relative ${
+              className={`hidden sm:inline-flex p-2 sm:p-2.5 rounded-xl sm:rounded-full border transition-all duration-300 items-center justify-center cursor-pointer relative ${
                 isVoiceListening
                   ? 'bg-rose-600 border-rose-500 text-white shadow-lg ring-2 ring-rose-400/50 animate-pulse'
                   : isDark
@@ -689,7 +777,7 @@ export default function App() {
                   : 'Voice Command: click to speak "switch to dark mode" or "switch to light mode"'
               }
             >
-              <Mic className={`w-4 h-4 ${isVoiceListening ? 'animate-bounce text-white' : ''}`} />
+              <Mic className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isVoiceListening ? 'animate-bounce text-white' : ''}`} />
               {isVoiceListening && (
                 <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white animate-ping" />
               )}
@@ -699,23 +787,257 @@ export default function App() {
             <button
               id="theme-toggle-btn"
               onClick={() => setIsDark(!isDark)}
-              className={`p-2.5 rounded-full border transition-all duration-300 flex items-center justify-center cursor-pointer ${
+              className={`p-2 sm:p-2.5 rounded-xl sm:rounded-full border transition-all duration-300 flex items-center justify-center cursor-pointer ${
                 isDark
                   ? 'bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700 hover:scale-105 shadow-inner'
                   : 'bg-slate-100 border-slate-200 text-indigo-600 hover:bg-slate-200 hover:scale-105 shadow-sm'
               }`}
               title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
             >
-              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {isDark ? <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Moon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
             </button>
 
-            <span className={`text-[10px] font-mono font-bold hidden lg:inline-flex border px-2 py-1 rounded-md transition-colors duration-300 ${
+            {/* Responsive Navigation Menu Toggle Button (Visible on all screens < lg: 1024px) */}
+            <button
+              id="mobile-menu-toggle-btn"
+              onClick={() => setIsMobileNavOpen(prev => !prev)}
+              className={`p-2 rounded-xl border lg:hidden transition-colors cursor-pointer flex items-center justify-center ${
+                isMobileNavOpen
+                  ? 'bg-indigo-600 border-indigo-500 text-white shadow-xs'
+                  : isDark
+                  ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                  : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+              }`}
+              aria-label="Toggle navigation menu"
+              aria-expanded={isMobileNavOpen}
+              title={isMobileNavOpen ? "Close Menu" : "Open Menu"}
+            >
+              {isMobileNavOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+            </button>
+
+            <span className={`text-[10px] font-mono font-bold hidden 2xl:inline-flex border px-2 py-1 rounded-md transition-colors duration-300 ${
               isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-400'
             }`}>
-              POWERED BY GEMINI 3.5 & VEO IMAGE PREVIEW
+              POWERED BY GEMINI 3.5 &amp; VEO
             </span>
           </div>
         </div>
+
+        {/* Responsive Drawer for mobile and tablet screens (< 1024px) */}
+        <AnimatePresence>
+          {isMobileNavOpen && (
+            <>
+              {/* Dimmed backdrop overlay - tap outside to close */}
+              <motion.div
+                key="mobile-nav-backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                onClick={() => setIsMobileNavOpen(false)}
+                className="fixed inset-0 top-16 bg-slate-950/60 backdrop-blur-xs z-30 lg:hidden"
+              />
+
+              {/* Drawer Container */}
+              <motion.div
+                key="mobile-navigation-drawer"
+                id="mobile-navigation-drawer"
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className={`fixed inset-x-0 top-16 z-40 lg:hidden max-h-[calc(100vh-4.5rem)] overflow-y-auto border-b font-sans transition-colors duration-200 shadow-2xl ${
+                  isDark ? 'bg-slate-900/98 border-slate-800 text-slate-100' : 'bg-white/98 border-slate-200 text-slate-900'
+                }`}
+              >
+                <div className="max-w-xl mx-auto px-4 py-4 space-y-3">
+                  {/* Active Brand Quick Strip if present */}
+                  {activeBible && (
+                    <div className={`p-3.5 rounded-2xl border ${
+                      isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-indigo-50/70 border-indigo-100'
+                    }`}>
+                      <div className="flex items-center justify-between gap-2 mb-2.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Briefcase className="w-4 h-4 text-indigo-600 shrink-0" />
+                          <span className="text-xs font-black truncate">{activeBible.companyName}</span>
+                          {activeBible.industry && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-600/15 text-indigo-500 uppercase tracking-wider shrink-0">
+                              {activeBible.industry}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          id="mobile-drawer-export-pdf-btn"
+                          onClick={() => {
+                            setShowPdfExportModal(true);
+                            setIsMobileNavOpen(false);
+                          }}
+                          className="px-3 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>Export PDF</span>
+                        </button>
+                        <button
+                          type="button"
+                          id="mobile-drawer-share-link-btn"
+                          onClick={() => {
+                            try {
+                              const base64Str = encodeBrandBibleToHash(activeBible);
+                              window.location.hash = `share=${base64Str}`;
+                              window.history.replaceState(null, '', `#share=${base64Str}`);
+                              const shareUrl = generateShareableUrl(activeBible);
+                              if (navigator.clipboard && navigator.clipboard.writeText) {
+                                navigator.clipboard.writeText(shareUrl).catch(() => {});
+                              }
+                              setHeaderShareCopied(true);
+                              setTimeout(() => setHeaderShareCopied(false), 2500);
+                            } catch (e) {
+                              console.error("Failed to share link:", e);
+                            }
+                          }}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold border flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                            headerShareCopied
+                              ? 'bg-emerald-600 border-emerald-500 text-white'
+                              : isDark
+                              ? 'bg-slate-800 border-slate-700 text-slate-200'
+                              : 'bg-white border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {headerShareCopied ? <Check className="w-3.5 h-3.5 text-white" /> : <Share2 className="w-3.5 h-3.5 text-indigo-500" />}
+                          <span>{headerShareCopied ? "Link Copied!" : "Share Link"}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Primary Navigation Buttons */}
+                  <div className="space-y-1">
+                    <button
+                      id="mobile-nav-studio-btn"
+                      onClick={() => { setActiveViewPage('studio'); setIsMobileNavOpen(false); }}
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition cursor-pointer ${
+                        activeViewPage === 'studio'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : isDark ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Layers className="w-4 h-4" />
+                        <span>Studio Workspace</span>
+                      </div>
+                      {activeViewPage === 'studio' && <span className="text-[10px] uppercase tracking-wider font-extrabold opacity-80">Active</span>}
+                    </button>
+
+                    <button
+                      id="mobile-nav-font-playground-btn"
+                      onClick={() => { setActiveViewPage('font-playground'); setIsMobileNavOpen(false); }}
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition cursor-pointer ${
+                        activeViewPage === 'font-playground'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : isDark ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Type className="w-4 h-4" />
+                        <span>Font Playground</span>
+                      </div>
+                      {activeViewPage === 'font-playground' && <span className="text-[10px] uppercase tracking-wider font-extrabold opacity-80">Active</span>}
+                    </button>
+
+                    <button
+                      id="mobile-nav-about-btn"
+                      onClick={() => { setActiveViewPage('about'); setIsMobileNavOpen(false); }}
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition cursor-pointer ${
+                        activeViewPage === 'about'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : isDark ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Info className="w-4 h-4" />
+                        <span>About Brand Suite</span>
+                      </div>
+                      {activeViewPage === 'about' && <span className="text-[10px] uppercase tracking-wider font-extrabold opacity-80">Active</span>}
+                    </button>
+
+                    <button
+                      id="mobile-nav-contact-btn"
+                      onClick={() => { setActiveViewPage('contact'); setIsMobileNavOpen(false); }}
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition cursor-pointer ${
+                        activeViewPage === 'contact'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : isDark ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Mail className="w-4 h-4" />
+                        <span>Contact &amp; Inquiries</span>
+                      </div>
+                      {activeViewPage === 'contact' && <span className="text-[10px] uppercase tracking-wider font-extrabold opacity-80">Active</span>}
+                    </button>
+                  </div>
+
+                  {/* Utilities Strip in Mobile Drawer */}
+                  <div className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
+                    isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}>
+                    <button
+                      type="button"
+                      onClick={() => setIsDark(!isDark)}
+                      className="flex items-center gap-2 text-xs font-bold transition hover:opacity-80 cursor-pointer"
+                    >
+                      <div className={`p-1.5 rounded-lg border ${
+                        isDark ? 'bg-slate-800 border-slate-700 text-amber-400' : 'bg-white border-slate-200 text-indigo-600'
+                      }`}>
+                        {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+                      </div>
+                      <span>{isDark ? "Dark Mode" : "Light Mode"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={toggleVoiceThemeListener}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer ${
+                        isVoiceListening
+                          ? 'bg-rose-600 border-rose-500 text-white animate-pulse'
+                          : isDark
+                          ? 'bg-slate-800 border-slate-700 text-slate-300'
+                          : 'bg-white border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <Mic className={`w-3.5 h-3.5 ${isVoiceListening ? 'text-white' : 'text-indigo-500'}`} />
+                      <span>{isVoiceListening ? "Listening..." : "Voice Mode"}</span>
+                    </button>
+                  </div>
+
+                  {/* Footer policy links */}
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between px-2 text-[11px] font-medium text-slate-400">
+                    <button
+                      id="mobile-nav-privacy-btn"
+                      onClick={() => { setActiveViewPage('privacy'); setIsMobileNavOpen(false); }}
+                      className="hover:text-indigo-500 transition cursor-pointer"
+                    >
+                      Privacy Policy
+                    </button>
+                    <span>•</span>
+                    <button
+                      id="mobile-nav-terms-btn"
+                      onClick={() => { setActiveViewPage('terms'); setIsMobileNavOpen(false); }}
+                      className="hover:text-indigo-500 transition cursor-pointer"
+                    >
+                      Terms of Service
+                    </button>
+                    <span>•</span>
+                    <span className="text-[10px] font-mono">v2.5</span>
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </header>
 
       {/* Main Workspace Body */}
@@ -747,6 +1069,26 @@ export default function App() {
               key="contact-page"
               isDark={isDark}
             />
+          ) : activeViewPage === 'font-playground' ? (
+            <FontPlayground
+              key="font-playground"
+              isDark={isDark}
+              activeBible={activeBible}
+              onApplyFontPairing={handleApplyFontPairing}
+              onNavigateToStudio={() => setActiveViewPage('studio')}
+            />
+          ) : activeViewPage === 'privacy' ? (
+            <PrivacyPolicyPage
+              key="privacy-page"
+              isDark={isDark}
+              onNavigateToStudio={() => setActiveViewPage('studio')}
+            />
+          ) : activeViewPage === 'terms' ? (
+            <TermsPage
+              key="terms-page"
+              isDark={isDark}
+              onNavigateToStudio={() => setActiveViewPage('studio')}
+            />
           ) : (
             <motion.div
               key="studio-workspace"
@@ -761,63 +1103,122 @@ export default function App() {
                 <div className={`border rounded-3xl p-6 shadow-sm font-sans transition-all duration-300 ${
                   isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
                 }`}>
-                  <div className="flex justify-between items-center mb-4 px-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 px-1">
                     <div className={`flex items-center gap-2 text-xs font-black ${
                       isDark ? 'text-slate-400' : 'text-slate-500'
                     }`}>
                       <Clock className="w-4 h-4 text-indigo-600" />
-                      <span className="uppercase tracking-wider">Your Saved Brand Identities ({savedBibles.length})</span>
+                      <span className="uppercase tracking-wider">
+                        Your Saved Brand Identities ({filteredSavedBibles.length}{savedBrandsSearch.trim() ? ` of ${savedBibles.length}` : ''})
+                      </span>
                     </div>
-                    <button
-                      id="create-new-brand-btn"
-                      type="button"
-                      onClick={() => {
-                        setActiveBible(null);
-                        setError(null);
-                      }}
-                      className="text-xs px-3 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>New Brand</span>
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    {savedBibles.map((bible) => (
+
+                    <div className="flex items-center gap-2.5 flex-1 max-w-md sm:justify-end">
+                      {/* Search Bar for Company Name or Industry */}
+                      <div className="relative flex-1 max-w-xs">
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        <input
+                          id="saved-brands-search-input"
+                          type="text"
+                          value={savedBrandsSearch}
+                          onChange={(e) => setSavedBrandsSearch(e.target.value)}
+                          placeholder="Search by company or industry..."
+                          className={`w-full pl-8.5 pr-8 py-1.5 text-xs rounded-full border transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/30 ${
+                            isDark
+                              ? 'bg-slate-950 border-slate-700 text-slate-100 placeholder-slate-500 focus:border-indigo-500'
+                              : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 focus:border-indigo-500'
+                          }`}
+                        />
+                        {savedBrandsSearch && (
+                          <button
+                            type="button"
+                            id="clear-saved-brands-search-btn"
+                            onClick={() => setSavedBrandsSearch('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+                            title="Clear search"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+
                       <button
-                        id={`history-brand-btn-${bible.id}`}
-                        key={bible.id}
+                        id="create-new-brand-btn"
+                        type="button"
                         onClick={() => {
-                          setActiveBible(bible);
+                          setActiveBible(null);
                           setError(null);
                         }}
-                        className={`px-4 py-2.5 rounded-full text-xs font-bold flex items-center gap-3 transition-all duration-200 border text-left cursor-pointer ${
-                          activeBible?.id === bible.id
-                            ? isDark
-                              ? 'bg-indigo-950/60 border-indigo-500/50 text-indigo-300 ring-1 ring-indigo-500/20'
-                              : 'bg-indigo-50 border-indigo-200 text-indigo-700 ring-1 ring-indigo-500/10'
-                            : isDark
-                              ? 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300'
-                              : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600'
-                        }`}
+                        className="text-xs px-3 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer shrink-0"
                       >
-                        <Briefcase className="w-3.5 h-3.5 text-indigo-600" />
-                        <div>
-                          <span className="block font-extrabold">{bible.companyName}</span>
-                          <span className="text-[9px] text-slate-400 font-bold">{bible.createdAt}</span>
-                        </div>
-                        <span
-                          id={`delete-brand-btn-${bible.id}`}
-                          onClick={(e) => handleDeleteBible(bible.id, e)}
-                          className={`p-1.5 rounded-full transition ml-1 ${
-                            isDark ? 'hover:bg-rose-950/50 hover:text-rose-400' : 'hover:bg-rose-50 hover:text-rose-600'
-                          }`}
-                          title="Delete Saved Brand"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </span>
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>New Brand</span>
                       </button>
-                    ))}
+                    </div>
                   </div>
+
+                  {filteredSavedBibles.length === 0 ? (
+                    <div className={`py-6 text-center rounded-2xl border border-dashed text-xs ${
+                      isDark ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-500'
+                    }`}>
+                      <p className="font-semibold">No saved brand identities matching &ldquo;{savedBrandsSearch}&rdquo;</p>
+                      <button
+                        type="button"
+                        id="clear-search-filter-link-btn"
+                        onClick={() => setSavedBrandsSearch('')}
+                        className="mt-2 text-indigo-500 hover:text-indigo-600 font-bold text-xs cursor-pointer inline-flex items-center gap-1 transition"
+                      >
+                        <span>Clear search filter</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-3">
+                      {filteredSavedBibles.map((bible) => (
+                        <button
+                          id={`history-brand-btn-${bible.id}`}
+                          key={bible.id}
+                          onClick={() => {
+                            setActiveBible(bible);
+                            setError(null);
+                          }}
+                          className={`px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-3 transition-all duration-200 border text-left cursor-pointer ${
+                            activeBible?.id === bible.id
+                              ? isDark
+                                ? 'bg-indigo-950/60 border-indigo-500/50 text-indigo-300 ring-1 ring-indigo-500/20'
+                                : 'bg-indigo-50 border-indigo-200 text-indigo-700 ring-1 ring-indigo-500/10'
+                              : isDark
+                                ? 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300'
+                                : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          <Briefcase className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="block font-extrabold truncate">{bible.companyName}</span>
+                              {bible.industry && (
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold uppercase tracking-wider ${
+                                  isDark ? 'bg-indigo-950/80 text-indigo-300 border border-indigo-900/50' : 'bg-indigo-100/70 text-indigo-700'
+                                }`}>
+                                  {bible.industry}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[9px] text-slate-400 font-medium block mt-0.5">{bible.createdAt}</span>
+                          </div>
+                          <span
+                            id={`delete-brand-btn-${bible.id}`}
+                            onClick={(e) => handleDeleteBible(bible.id, e)}
+                            className={`p-1.5 rounded-full transition ml-1 shrink-0 ${
+                              isDark ? 'hover:bg-rose-950/50 hover:text-rose-400' : 'hover:bg-rose-50 hover:text-rose-600'
+                            }`}
+                            title="Delete Saved Brand"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -963,6 +1364,7 @@ export default function App() {
                               onRegenerateLogo={handleRegenerateLogo}
                               logoSize={logoSize}
                               isDark={isDark}
+                              onOpenFontPlayground={() => setActiveViewPage('font-playground')}
                             />
                           </motion.div>
                         ) : (
@@ -1099,11 +1501,16 @@ export default function App() {
         </AnimatePresence>
       </main>
 
+      {/* Google AdSense Compliant Banner Slot */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <AdBanner id="adsense-bottom-placement" isDark={isDark} />
+      </div>
+
       {/* Footer */}
-      <footer className={`border-t mt-12 py-8 text-xs font-sans transition-all duration-300 ${
+      <footer className={`border-t mt-8 py-8 text-xs font-sans transition-all duration-300 ${
         isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'
       }`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <div className="bg-indigo-600 text-white p-1.5 rounded-lg">
               <Layers className="w-3.5 h-3.5" />
@@ -1111,13 +1518,20 @@ export default function App() {
             <span className="font-bold text-slate-700 dark:text-slate-300">Brand Identity Generator Suite</span>
           </div>
 
-          <div className="flex items-center gap-6 font-semibold">
+          <div className="flex flex-wrap items-center justify-center gap-5 font-semibold">
             <button
               id="footer-nav-studio-btn"
               onClick={() => setActiveViewPage('studio')}
               className="hover:text-indigo-500 transition cursor-pointer"
             >
               Studio
+            </button>
+            <button
+              id="footer-nav-font-playground-btn"
+              onClick={() => setActiveViewPage('font-playground')}
+              className="hover:text-indigo-500 transition cursor-pointer"
+            >
+              Font Playground
             </button>
             <button
               id="footer-nav-about-btn"
@@ -1132,6 +1546,20 @@ export default function App() {
               className="hover:text-indigo-500 transition cursor-pointer"
             >
               Contact
+            </button>
+            <button
+              id="footer-nav-privacy-btn"
+              onClick={() => setActiveViewPage('privacy')}
+              className="hover:text-indigo-500 transition cursor-pointer"
+            >
+              Privacy Policy
+            </button>
+            <button
+              id="footer-nav-terms-btn"
+              onClick={() => setActiveViewPage('terms')}
+              className="hover:text-indigo-500 transition cursor-pointer"
+            >
+              Terms of Service
             </button>
             <button
               id="footer-shortcuts-trigger-btn"
@@ -1216,6 +1644,12 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* GDPR & CCPA Compliant Cookie & Ad Consent Banner (AdSense Compliance) */}
+      <CookieConsentBanner
+        isDark={isDark}
+        onOpenPrivacyPolicy={() => setActiveViewPage('privacy')}
+      />
 
     </div>
   );

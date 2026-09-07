@@ -118,6 +118,7 @@ interface BrandBibleDashboardProps {
   onUpdateBible?: (newBible: BrandBible) => void;
   onUpdateMission?: (newMission: string) => void;
   onUpdateTagline?: (newTagline: string) => void;
+  onOpenFontPlayground?: () => void;
 }
 
 export default function BrandBibleDashboard({
@@ -134,7 +135,8 @@ export default function BrandBibleDashboard({
   onUpdateVoice,
   onUpdateBible,
   onUpdateMission,
-  onUpdateTagline
+  onUpdateTagline,
+  onOpenFontPlayground
 }: BrandBibleDashboardProps) {
   const [copiedHex, setCopiedHex] = useState<string | null>(null);
   const [contrastBg, setContrastBg] = useState<string>(bible.colorPalette[0]?.hex || '#ffffff');
@@ -7892,16 +7894,30 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         }`}
       >
         <div className={`border-b pb-4 mb-6 transition-colors duration-300 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
-          <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block mb-1">05 / Typography Pairing</span>
-          <h2 className={`text-xl font-black flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
-            isDark ? 'text-white' : 'text-slate-900'
-          }`}>
-            <Type className="w-5 h-5 text-indigo-600" />
-            Suggested Google Font Pairing
-          </h2>
-          <p className="text-xs text-slate-400 font-sans mt-0.5 leading-relaxed">
-            A carefully selected type scale loaded live from Google Fonts. Compare heading and body structures together.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <span className="text-[10px] uppercase tracking-widest font-extrabold text-indigo-600 block mb-1">05 / Typography Pairing</span>
+              <h2 className={`text-xl font-black flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
+                isDark ? 'text-white' : 'text-slate-900'
+              }`}>
+                <Type className="w-5 h-5 text-indigo-600" />
+                Suggested Google Font Pairing
+              </h2>
+              <p className="text-xs text-slate-400 font-sans mt-0.5 leading-relaxed">
+                A carefully selected type scale loaded live from Google Fonts. Compare heading and body structures together.
+              </p>
+            </div>
+            {onOpenFontPlayground && (
+              <button
+                id="launch-font-playground-from-dashboard-btn"
+                onClick={onOpenFontPlayground}
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-98 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer shadow-md shadow-indigo-600/20"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Launch Interactive Font Playground</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <motion.div
@@ -10189,11 +10205,235 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                               src={logoUrl}
                               alt={`Logo Version ${index + 1}`}
                               className="max-h-full max-w-full object-contain p-2 transition duration-200 group-hover:scale-105"
-          xúÏZkS€H˝û_—„§ÇôâlŸ'∞
-SCUxÏd∑ñ¢í∂›ñ{ê‘™VL<˛Ôsª%[Ônª3S[Òc§~ﬂsœ=˜J?úLÁÑ_2óéüY´KçW%Ì◊üˆ˛+Ì˝E˚GÙO†!;$D?∂ó⁄Ê{czèF.√sÏëACÊŒAÇV∑µç\2Í«ƒ%sDÒBkD|A8rp`u‡Œ7´c7ˆµ”¿DaÄ˝‘LãØ¡‹Í¢‡—≤aŒf˛òåë sa›tÏ`~ã&Ãñ«|˝2wå¬)≥+Ù–õÖaBÑh¯Û;tÄ6Üé∫Xkg€nÔÿ—4—ïûm£!„cÿOÙ'æ˛¡∂7–ÆÍ˙0ÖmÁ∫ΩØË÷ÖnÜÖ-ø.MáÖ–˝Ç¬ÅÃ—O®£7 úl[≠i»GÇﬁÙˆ-jÁœõ´Á@<¬±;∂∂Ì¯(‘¡†;ZìôÎ∆∆‹Y€RY∞F)À™∂!ˆC#¶‘Bèßdtó^ÈÉ’CS´◊ WAÒñ/9ı04Ô∫÷Qn\™>U√K∆˜åSÂjé„*èCú:Sav⁄·LÊñ…¸c‡ñª¡¢I6—`ôÜ¥BXƒ%gv∞†Ãon˛√ÿ)Z˝j3üò√ö.|˝ ]cÁ•	⁄i∫(0ì:+ı+¢°ˆÜxt7ÜçXCw∆ë‡ '*w§»
-çf<d‹
-U¨≈%∞√òJ8Iﬁ	b¯z„iƒ|c€Ì~Ü8∂†ﬂî›æ´.™±íkôé;u®ƒ–BP·¬È≠ñﬂ∏"LÑ&úyk ÜXs„Lr%◊W˙°ç|ˇ¡\d,é	fö™Ô7Î%mL®ÎZ`t†No∂%„úv¯v‰5¸Ïy≤è§˘C$ˇqÒ„Û#ıC",`ˇtLÉ”å® D 1∞"ÉÆÆv$\ég\9òå%î¯€,tÚòf». ∑[#Ã÷¢Ü49‘‰Ñ`€—·cÿaH‹S¢ö*P’ äÙü)y8cc“‹≈cm‘¡»(±"ﬂÃπV«Œ8$xä	%M ±CªN⁄lÍÁÑq/3a,0ä^¬…O‰óçˇ0√∑ü»=ú`≠Œ÷4Ñ96Ó…¡O˝lh‹ˇ€jòº+Ì_˙vãû®+j‚≥Ä–)ˆ«.π"°x6 òAëá ñ:ÃÍßi7æñ◊6:0÷–à∑*)9´bêdjÛ@œOuR#ıÙí±Å¶ÖíSåIÆ<ı'Ã@Óyj˜(∆jÒ@à¡bnR•≈<'…c‚Ï¶#±Ä´Ù$+TL]Hn‘»NaÕ*¶†◊usá:r˜i˛ÃÛÁN2∂P*€PWRÆùR^Ò’D{IÁ.ı…}÷Ï(◊DH7ÆóÖ‘Û*Ì¡<jØÌ1	îñ¶UE4^ñŒ[1¥-\ìû⁄m°„√´ã_ØO>°œß'ˇBgOJ}v¡≤rîHâHÏ∫0aÀ%æ#¶hŸU@Õ˚Ωry˘eçò´`ê›ˆ+¸>7Ë‚+'‡µ“]¢x··πı`uÁ.ÍNKzp!. ÷≥LÇç[ÆNY‚;r¢≥reíTùF$é'‘1vÛ≥åd!\óÆd≥¢B±EÍÈé«ªñ#ˇ¬∂õØ∑ﬁoo˜wæ cæS`ô%»ˇ7o—çLÚu†VHøë]Y7˙¢äG∫ïÏVRﬁW√¿{‘s*Á˘h∞XÅÙÜïË€jW∆Æ D%Ã˛fQ6Ä"zM&òu ∆ióÍ'˛FFº¿$h  ∆ñó|Êìj˛{F≥∫|)ô·2¬à˝tïKSê…ó™º% —-Ô«? «6†4œ'Í bT¯π©·›≤dQUO∑‡D{πÚD:y|_ñ˝ßUhE}2-@ÎÜ¨X\™ÑŒ5?¡
-—!ÁÏa≥™ó&íÄ~ºÁÃWÉdT§ÃÛ∑5*“Â˛g6.≥ÔX>∂ÒOO∑qTá˙˘GÕ+UR|©Ö£Q˛ã&÷â˙ÅæUQ8ﬁ™î„Ö
-vFÊû+d∏F‚W0b¥»°´í¡¥¬€.– „!∫§DäR6÷´s≥.7*r˝¢¥z4eÑ`.=Â—Í\•~R^"Û©~L%ÓµùHõëñ=tX’6π≥¬Â~úd3{S>f"Õ
-#T¶O‘Ì=–ÌgóáW'œìÌÃìÚ≠\µP∑Ælw8#˘%e{huê7ﬁM˛Ì*{˜%∆™∏AÓ%äXjE4ÿÑ.´~ÓR–¯rÇ!_#°X*ı{˘CÀ gì´AMıÆS±πcéµ°π.‚5,,ÒÆ§§∆#Ó±;ÉSçÒ!qq®HEG)@W@QY?›pú†y>ÛÜÑ7IK`Ó—R3È‚{ˆëSëhíÿD÷ì K?yJê`x¢Tf‰|&Ú>[¶ÓÊûGûn\ô≈D]≤†£Æ$ºy8h6øºCTùΩæ*¥«≈Ãw‰q∞†ÀïπÈrˇ3·a\∞äBh˘Ë≠"çbòÉ3kF¨π?,⁄kGËVÆ≥9∞ÆB®¬eR".‰ïõîä∏ñ§r®gum≠¶@<±SN≠˛÷u›t%°L'Â*	lñÙEÇÍb¿üùÚ?3±7ºê!ì˚\_ ™€• ‘ëΩëº—xj÷›–f”:ï]âùƒñ10÷ÙﬂÉ`Â&ˇ“ xÙ“ xÙ=~Ç©œ_èæ¡ˇﬂ xTÇG∑ X˚F¡GJ⁄U=@+øæqØ}ËÉr…IH¸Y«ÊË•]
-tLË(*˜'°xØ–s5˙B®~π‹y/YHfÂ‘ßê6X,VÔ+Ì"˚ÇÔ.¸Qo-¿Ö÷Œv˛]ÕüÈÿQì~ù|'2ß¢d™é~™Ã≥s:'c¿∞ÃìrCïZ˚Ëõˆ´RR/CÒÎ9=R(ıí◊Lã\P'2}»‘§ÍG•ùºf„Ph9¢^mÕøê¬©gŸäGWô(!àcÊ2æãHZS8âe·’:}°Tízc?BYÀ#aà≤,cÛÚc±NØpﬁÙaÂWK◊	≠Nvóπ‚˘[˜VedÜ‹[ûûku≤Âæº˜Ô˝ªnIØ¨˜"Ô?ïKƒq5„œËd0.–c7Õó„ItK›YœB√ãÄ¯ÉE8eŸ&…KS∞ê§Lq]h›ú`7$)√(Ì1X®?À‘t“AÒ+,…u<SqE‰p*í“ãêì*¿Bb<ΩCÄÃ¬{àk¨,P∫›Æ¸BøˇÀ¢ë¯%êâ‰∆æ=h≈w7^˜{˝˛§≥Åñôw‰®‘#l&öeê|áz€∂ùÍ±&ßv•ΩÆß—'p¬¢Ω‘=y´⁄^™I-[%-_dßÀÎ¿ª]æ˙  ˇˇ µ‘’
+                              referrerPolicy="no-referrer"
+                            />
+
+                            {/* Top badges */}
+                            <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 z-10">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold shadow-sm ${
+                                isDark ? 'bg-slate-950/90 text-slate-300 border border-slate-800' : 'bg-white/90 text-slate-700 border border-slate-200'
+                              }`}>
+                                v{index + 1}
+                              </span>
+                              {isActive && (
+                                <span className="bg-emerald-500 text-white px-2 py-0.5 rounded-full text-[9px] font-bold flex items-center gap-1 shadow-sm font-sans">
+                                  <Check className="w-3 h-3" /> Active Primary
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Favorite toggle top right */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleFavoriteLogo(logoUrl);
+                              }}
+                              className={`absolute top-2.5 right-2.5 p-1.5 rounded-full backdrop-blur transition z-10 cursor-pointer ${
+                                isFav ? 'bg-rose-500 text-white shadow-md' : 'bg-slate-900/60 text-slate-400 hover:text-rose-400 hover:bg-slate-900/90'
+                              }`}
+                              title={isFav ? "Remove from Favorites" : "Mark as Favorite"}
+                            >
+                              <Heart className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
+                            </button>
+
+                            {/* Hover actions overlay */}
+                            <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition duration-200 flex items-center justify-center gap-2 z-20">
+                              <button
+                                onClick={() => {
+                                  setOverlayCarouselIndex(index);
+                                  setOverlayViewMode('carousel');
+                                }}
+                                className="bg-white hover:bg-slate-100 text-slate-900 p-2.5 rounded-full shadow-lg transition transform hover:scale-110 cursor-pointer"
+                                title="Zoom & Preview in Carousel"
+                              >
+                                <ZoomIn className="w-4 h-4" />
+                              </button>
+                              {!isActive && (
+                                <button
+                                  onClick={() => handleRestoreLogo(logoUrl)}
+                                  className="bg-indigo-600 hover:bg-indigo-500 text-white p-2.5 rounded-full shadow-lg transition transform hover:scale-110 cursor-pointer"
+                                  title="Restore as Active Primary Mark"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Footer Info */}
+                          <div className="mt-3 flex items-center justify-between text-xs">
+                            <span className={`font-mono text-[11px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                              Iteration #{index + 1}
+                            </span>
+                            {!isActive && (
+                              <button
+                                onClick={() => handleRestoreLogo(logoUrl)}
+                                className="text-xs font-bold text-indigo-500 hover:text-indigo-400 hover:underline cursor-pointer"
+                              >
+                                Set as Primary
+                              </button>
+                            )}
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* 2. CAROUSEL VIEW MODE */}
+                {overlayViewMode === 'carousel' && allLogos.length > 0 && (
+                  <div className="flex flex-col items-center justify-center py-6">
+                    <div className={`relative w-full max-w-2xl h-96 rounded-3xl border p-8 flex items-center justify-center transition-all ${
+                      overlayBg === 'light'
+                        ? 'bg-white border-slate-200'
+                        : overlayBg === 'checker'
+                          ? 'bg-slate-900 border-slate-800 bg-[radial-gradient(#475569_1px,transparent_1px)] [background-size:10px_10px]'
+                          : 'bg-slate-900 border-slate-800'
+                    }`}>
+                      <img
+                        src={allLogos[overlayCarouselIndex]}
+                        alt={`Iteration ${overlayCarouselIndex + 1}`}
+                        className="max-h-full max-w-full object-contain p-4 select-none"
+                        referrerPolicy="no-referrer"
+                      />
+
+                      {/* Nav buttons */}
+                      <button
+                        onClick={() => setOverlayCarouselIndex(prev => (prev === 0 ? allLogos.length - 1 : prev - 1))}
+                        className="absolute left-4 p-3 rounded-full bg-slate-950/70 hover:bg-slate-900 text-white border border-slate-800 transition cursor-pointer"
+                        title="Previous (Left Arrow)"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <button
+                        onClick={() => setOverlayCarouselIndex(prev => (prev === allLogos.length - 1 ? 0 : prev + 1))}
+                        className="absolute right-4 p-3 rounded-full bg-slate-950/70 hover:bg-slate-900 text-white border border-slate-800 transition cursor-pointer"
+                        title="Next (Right Arrow)"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="mt-4 flex items-center gap-4">
+                      <span className="text-xs font-mono font-bold text-slate-400">
+                        {overlayCarouselIndex + 1} of {allLogos.length}
+                      </span>
+                      {allLogos[overlayCarouselIndex] !== bible.primaryLogo && (
+                        <button
+                          onClick={() => handleRestoreLogo(allLogos[overlayCarouselIndex])}
+                          className="px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Set as Active Primary</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. COMPARE VIEW MODE */}
+                {overlayViewMode === 'compare' && allLogos.length >= 2 && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-4">
+                    {/* Left comparison slot */}
+                    <div className={`p-6 rounded-3xl border flex flex-col items-center justify-between ${
+                      isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}>
+                      <div className="w-full flex items-center justify-between mb-4">
+                        <select
+                          value={compareLogoAIndex}
+                          onChange={(e) => setCompareLogoAIndex(Number(e.target.value))}
+                          className={`text-xs font-bold font-mono px-3 py-1.5 rounded-xl border ${
+                            isDark ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                          }`}
+                        >
+                          {allLogos.map((_, i) => (
+                            <option key={i} value={i}>Version #{i + 1} {allLogos[i] === bible.primaryLogo ? '(Active)' : ''}</option>
+                          ))}
+                        </select>
+                        <span className="text-[11px] font-bold text-indigo-400">Slot A</span>
+                      </div>
+                      <div className={`w-full h-64 rounded-2xl border p-4 flex items-center justify-center ${
+                        overlayBg === 'light' ? 'bg-white border-slate-200' : overlayBg === 'checker' ? 'bg-slate-900 border-slate-800 bg-[radial-gradient(#475569_1px,transparent_1px)] [background-size:10px_10px]' : 'bg-slate-900 border-slate-800'
+                      }`}>
+                        <img src={allLogos[compareLogoAIndex]} alt="Slot A Logo" className="max-h-full max-w-full object-contain" referrerPolicy="no-referrer" />
+                      </div>
+                    </div>
+
+                    {/* Right comparison slot */}
+                    <div className={`p-6 rounded-3xl border flex flex-col items-center justify-between ${
+                      isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}>
+                      <div className="w-full flex items-center justify-between mb-4">
+                        <select
+                          value={compareLogoBIndex}
+                          onChange={(e) => setCompareLogoBIndex(Number(e.target.value))}
+                          className={`text-xs font-bold font-mono px-3 py-1.5 rounded-xl border ${
+                            isDark ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+                          }`}
+                        >
+                          {allLogos.map((_, i) => (
+                            <option key={i} value={i}>Version #{i + 1} {allLogos[i] === bible.primaryLogo ? '(Active)' : ''}</option>
+                          ))}
+                        </select>
+                        <span className="text-[11px] font-bold text-indigo-400">Slot B</span>
+                      </div>
+                      <div className={`w-full h-64 rounded-2xl border p-4 flex items-center justify-center ${
+                        overlayBg === 'light' ? 'bg-white border-slate-200' : overlayBg === 'checker' ? 'bg-slate-900 border-slate-800 bg-[radial-gradient(#475569_1px,transparent_1px)] [background-size:10px_10px]' : 'bg-slate-900 border-slate-800'
+                      }`}>
+                        <img src={allLogos[compareLogoBIndex]} alt="Slot B Logo" className="max-h-full max-w-full object-contain" referrerPolicy="no-referrer" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-2xl shadow-xl border flex items-center gap-3 font-sans ${
+              isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
+            <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: toast.hex }} />
+            <span className="text-xs font-bold">{toast.message}</span>
+            <button
+              onClick={() => setToast(null)}
+              className="p-1 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer ml-1"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Interactive PDF Export Modal */}
+      <PdfExportModal
+        isOpen={showPdfExportModal}
+        onClose={() => setShowPdfExportModal(false)}
+        bible={bible}
+        isDark={isDark}
+        auditReport={auditReport}
+        onShowToast={(message, hex) => {
+          setToast({ message, hex: hex || bible.colorPalette[0]?.hex || '#6366f1' });
+          setTimeout(() => setToast(null), 3500);
+        }}
+      />
+
+      {/* Interactive Share Link Modal */}
+      <ShareLinkModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        bible={bible}
+        isDark={isDark}
+      />
+    </div>
+  );
+}
