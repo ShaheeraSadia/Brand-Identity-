@@ -280,19 +280,11 @@ export default function App() {
       }
     };
 
-    const handleResize = () => {
-      if (window.innerWidth >= 1024) {
-        setIsMobileNavOpen(false);
-      }
-    };
-
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('resize', handleResize);
 
     return () => {
       document.body.style.overflow = '';
       window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('resize', handleResize);
     };
   }, [isMobileNavOpen]);
 
@@ -797,11 +789,11 @@ export default function App() {
               {isDark ? <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Moon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
             </button>
 
-            {/* Responsive Navigation Menu Toggle Button (Visible on all screens < lg: 1024px) */}
+            {/* Navigation Menu Toggle Button (Visible on all screens including desktop and publish) */}
             <button
               id="mobile-menu-toggle-btn"
               onClick={() => setIsMobileNavOpen(prev => !prev)}
-              className={`p-2 rounded-xl border lg:hidden transition-colors cursor-pointer flex items-center justify-center ${
+              className={`p-2 rounded-xl border transition-colors cursor-pointer flex items-center justify-center ${
                 isMobileNavOpen
                   ? 'bg-indigo-600 border-indigo-500 text-white shadow-xs'
                   : isDark
@@ -810,7 +802,7 @@ export default function App() {
               }`}
               aria-label="Toggle navigation menu"
               aria-expanded={isMobileNavOpen}
-              title={isMobileNavOpen ? "Close Menu" : "Open Menu"}
+              title={isMobileNavOpen ? "Close Menu" : "Open Navigation Menu"}
             >
               {isMobileNavOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
             </button>
@@ -823,7 +815,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Responsive Drawer for mobile and tablet screens (< 1024px) */}
+        {/* Responsive Drawer & Slide-over for all screens */}
         <AnimatePresence>
           {isMobileNavOpen && (
             <>
@@ -835,10 +827,10 @@ export default function App() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
                 onClick={() => setIsMobileNavOpen(false)}
-                className="fixed inset-0 top-16 bg-slate-950/60 backdrop-blur-xs z-30 lg:hidden"
+                className="fixed inset-0 top-16 bg-slate-950/60 backdrop-blur-xs z-30"
               />
 
-              {/* Drawer Container */}
+              {/* Drawer Container: Responsive floating panel on tablet/desktop, full-width dropdown on mobile */}
               <motion.div
                 key="mobile-navigation-drawer"
                 id="mobile-navigation-drawer"
@@ -846,7 +838,7 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2 }}
-                className={`fixed inset-x-0 top-16 z-40 lg:hidden max-h-[calc(100vh-4.5rem)] overflow-y-auto border-b font-sans transition-colors duration-200 shadow-2xl ${
+                className={`fixed top-16 z-40 inset-x-0 sm:inset-x-auto sm:right-4 md:right-6 lg:right-8 sm:w-96 sm:rounded-3xl sm:mt-2 max-h-[calc(100vh-5rem)] overflow-y-auto border font-sans transition-colors duration-200 shadow-2xl ${
                   isDark ? 'bg-slate-900/98 border-slate-800 text-slate-100' : 'bg-white/98 border-slate-200 text-slate-900'
                 }`}
               >
@@ -1288,11 +1280,11 @@ export default function App() {
                       <AnimatePresence mode="wait">
                         {activeMainTab === 'bible' ? (
                           <motion.div
-                            key="bible"
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -6 }}
-                            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                            key={activeBible ? `bible-${activeBible.id || activeBible.companyName}` : "bible-none"}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
                           >
                             <BrandBibleDashboard
                               bible={activeBible}

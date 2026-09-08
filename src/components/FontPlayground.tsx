@@ -16,7 +16,12 @@ import {
   Code,
   Download,
   Info,
-  Maximize2
+  Maximize2,
+  Columns2,
+  Pin,
+  PinOff,
+  ArrowLeftRight,
+  CheckCircle2
 } from 'lucide-react';
 import { BrandBible, FontPairing } from '../types';
 
@@ -198,10 +203,41 @@ export default function FontPlayground({
   const [letterSpacing, setLetterSpacing] = useState<number>(0);
   const [headerWeight, setHeaderWeight] = useState<number>(700);
   const [bodyWeight, setBodyWeight] = useState<number>(400);
-  const [textTransform, setTextTransform] = useState<'none' | 'uppercase' | 'capitalize'>('none');
+  type TextTransformOption = 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+  const [textTransform, setTextTransform] = useState<TextTransformOption>('none');
+
+  // Pinned Pairing for Side-by-Side Comparison
+  interface PinnedPairingConfig {
+    headerFont: string;
+    bodyFont: string;
+    headerCategory: string;
+    bodyCategory: string;
+    headerWeight: number;
+    bodyWeight: number;
+    scaleRatio: number;
+    lineHeight: number;
+    letterSpacing: number;
+    textTransform: TextTransformOption;
+    label?: string;
+  }
+
+  const [pinnedPairing, setPinnedPairing] = useState<PinnedPairingConfig>({
+    headerFont: defaultHeader,
+    bodyFont: defaultBody,
+    headerCategory: activeBible?.typography?.headerCategory || 'Serif',
+    bodyCategory: activeBible?.typography?.bodyCategory || 'Sans-serif',
+    headerWeight: 700,
+    bodyWeight: 400,
+    scaleRatio: 1.25,
+    lineHeight: 1.5,
+    letterSpacing: 0,
+    textTransform: 'none',
+    label: activeBible?.companyName ? `${activeBible.companyName} Default` : 'Baseline Pairing'
+  });
 
   // Preview Mode
-  const [previewTab, setPreviewTab] = useState<'hierarchy' | 'custom-type' | 'article' | 'glyphs'>('hierarchy');
+  type PreviewTabOption = 'hierarchy' | 'custom-type' | 'compare' | 'article' | 'glyphs';
+  const [previewTab, setPreviewTab] = useState<PreviewTabOption>('hierarchy');
   const [customUserText, setCustomUserText] = useState<string>(
     activeBible?.mission
       ? activeBible.mission
@@ -214,9 +250,9 @@ export default function FontPlayground({
   const [copiedCss, setCopiedCss] = useState<boolean>(false);
   const [appliedToast, setAppliedToast] = useState<string | null>(null);
 
-  // Dynamically load Google Fonts when selected
+  // Dynamically load Google Fonts when selected (active and pinned)
   useEffect(() => {
-    const fontsToLoad = [headerFont, bodyFont].filter(Boolean);
+    const fontsToLoad = [headerFont, bodyFont, pinnedPairing.headerFont, pinnedPairing.bodyFont].filter(Boolean);
     fontsToLoad.forEach((font) => {
       const id = `google-font-${font.replace(/\s+/g, '-').toLowerCase()}`;
       if (!document.getElementById(id)) {
@@ -229,9 +265,9 @@ export default function FontPlayground({
         document.head.appendChild(link);
       }
     });
-  }, [headerFont, bodyFont]);
+  }, [headerFont, bodyFont, pinnedPairing.headerFont, pinnedPairing.bodyFont]);
 
-  // Computed Type Scales
+  // Computed Type Scales for Active Candidate Pairing
   const computedScales = useMemo(() => {
     const b = baseSize;
     const r = scaleRatio;
@@ -252,6 +288,96 @@ export default function FontPlayground({
       small: { px: small, rem: (small / 16).toFixed(2), name: 'Small / Caption (Metadata & Labels)' }
     };
   }, [baseSize, scaleRatio]);
+
+  // Computed Type Scales for Pinned Baseline Pairing A
+  const computedPinnedScales = useMemo(() => {
+    const b = baseSize;
+    const r = pinnedPairing.scaleRatio || 1.25;
+
+    const h1 = Math.round(b * Math.pow(r, 4));
+    const h2 = Math.round(b * Math.pow(r, 3));
+    const h3 = Math.round(b * Math.pow(r, 2));
+    const body = b;
+    const small = Math.max(10, Math.round(b / r));
+
+    return {
+      h1: { px: h1, rem: (h1 / 16).toFixed(2) },
+      h2: { px: h2, rem: (h2 / 16).toFixed(2) },
+      h3: { px: h3, rem: (h3 / 16).toFixed(2) },
+      body: { px: body, rem: (body / 16).toFixed(2) },
+      small: { px: small, rem: (small / 16).toFixed(2) }
+    };
+  }, [baseSize, pinnedPairing.scaleRatio]);
+
+  // Actions for Comparison Mode
+  const handlePinCurrentPairing = () => {
+    setPinnedPairing({
+      headerFont,
+      bodyFont,
+      headerCategory,
+      bodyCategory,
+      headerWeight,
+      bodyWeight,
+      scaleRatio,
+      lineHeight,
+      letterSpacing,
+      textTransform,
+      label: `${headerFont} + ${bodyFont}`
+    });
+    setAppliedToast(`Pinned "${headerFont} + ${bodyFont}" as Baseline Pairing A!`);
+    setTimeout(() => setAppliedToast(null), 3000);
+  };
+
+  const handleSwapPairings = () => {
+    const tempPinned = { ...pinnedPairing };
+    setPinnedPairing({
+      headerFont,
+      bodyFont,
+      headerCategory,
+      bodyCategory,
+      headerWeight,
+      bodyWeight,
+      scaleRatio,
+      lineHeight,
+      letterSpacing,
+      textTransform,
+      label: `${headerFont} + ${bodyFont}`
+    });
+    setHeaderFont(tempPinned.headerFont);
+    setBodyFont(tempPinned.bodyFont);
+    setHeaderCategory(tempPinned.headerCategory);
+    setBodyCategory(tempPinned.bodyCategory);
+    setHeaderWeight(tempPinned.headerWeight);
+    setBodyWeight(tempPinned.bodyWeight);
+    setScaleRatio(tempPinned.scaleRatio);
+    setLineHeight(tempPinned.lineHeight);
+    setLetterSpacing(tempPinned.letterSpacing);
+    setTextTransform(tempPinned.textTransform);
+    setAppliedToast('Swapped Pairing A and Pairing B!');
+    setTimeout(() => setAppliedToast(null), 2500);
+  };
+
+  const handleApplySpecificPairing = (
+    hFont: string,
+    hCat: string,
+    bFont: string,
+    bCat: string,
+    ratio: number
+  ) => {
+    if (!onApplyFontPairing) return;
+    const newPairing: FontPairing = {
+      headerFont: hFont,
+      headerCategory: hCat,
+      headerUsage: `Hero statements, section headlines, and marketing callouts scaled at ${ratio}x.`,
+      bodyFont: bFont,
+      bodyCategory: bCat,
+      bodyUsage: `Body copy, interactive forms, UI labels, and longform reading.`
+    };
+
+    onApplyFontPairing(newPairing);
+    setAppliedToast(`Applied "${hFont} + ${bFont}" to your active Brand Bible!`);
+    setTimeout(() => setAppliedToast(null), 3500);
+  };
 
   // Apply Font Pairing Preset
   const handleSelectCuratedPairing = (pairing: CuratedPairing) => {
@@ -311,12 +437,14 @@ export default function FontPlayground({
   font-size: ${computedScales.h2.rem}rem; /* ${computedScales.h2.px}px */
   font-weight: ${headerWeight};
   line-height: ${lineHeight};
+  text-transform: ${textTransform};
 }
 
 .brand-heading-3 {
   font-family: var(--font-header);
   font-size: ${computedScales.h3.rem}rem; /* ${computedScales.h3.px}px */
   font-weight: ${headerWeight};
+  text-transform: ${textTransform};
 }
 
 .brand-body {
@@ -512,6 +640,47 @@ export default function FontPlayground({
               </button>
             </div>
 
+            {/* Pinned Pairing Status Box */}
+            <div className={`p-3 rounded-2xl border flex items-center justify-between gap-2 transition-all ${
+              isDark ? 'bg-slate-950/60 border-amber-500/30' : 'bg-amber-500/10 border-amber-500/25'
+            }`}>
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-500 shrink-0">
+                  <Pin className="w-3.5 h-3.5 fill-current" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[9px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                    Pinned Baseline (A)
+                  </div>
+                  <div className="text-xs font-extrabold truncate">
+                    {pinnedPairing.headerFont} + {pinnedPairing.bodyFont}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  id="sidebar-pin-current-btn"
+                  onClick={handlePinCurrentPairing}
+                  className="px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 transition cursor-pointer"
+                  title="Pin currently selected candidate fonts as baseline Pairing A"
+                >
+                  Pin Current
+                </button>
+                {previewTab !== 'compare' && (
+                  <button
+                    type="button"
+                    id="sidebar-compare-shortcut-btn"
+                    onClick={() => setPreviewTab('compare')}
+                    className="px-2 py-1 rounded-lg text-[10px] font-bold border border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition cursor-pointer"
+                    title="Open Side-by-Side Compare View"
+                  >
+                    Compare
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Header Font Selector */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -686,6 +855,44 @@ export default function FontPlayground({
                   ))}
                 </div>
               </div>
+
+              {/* Header Text Transform (Capitalization) Toggles */}
+              <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-bold block ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                    Header Text Transform
+                  </span>
+                  <span className="text-[10px] font-mono text-indigo-500 font-bold capitalize">
+                    {textTransform}
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { id: 'none', label: 'None', sub: 'Natural', preview: 'Aa' },
+                    { id: 'uppercase', label: 'UPPER', sub: 'All Caps', preview: 'AA' },
+                    { id: 'lowercase', label: 'lower', sub: 'All Lower', preview: 'aa' },
+                    { id: 'capitalize', label: 'Capital', sub: 'Title Case', preview: 'Aa Bb' }
+                  ].map((tt) => (
+                    <button
+                      key={tt.id}
+                      type="button"
+                      id={`playground-transform-${tt.id}-btn`}
+                      onClick={() => setTextTransform(tt.id as TextTransformOption)}
+                      className={`py-2 px-1 rounded-xl text-[10px] font-bold border transition flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+                        textTransform === tt.id
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
+                          : isDark
+                          ? 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300'
+                      }`}
+                      title={`Header Text Transform: ${tt.label} (${tt.sub})`}
+                    >
+                      <span className="font-mono text-xs font-black">{tt.preview}</span>
+                      <span className="text-[9px] uppercase tracking-wider opacity-90">{tt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -703,6 +910,7 @@ export default function FontPlayground({
               {[
                 { id: 'hierarchy', label: 'Modular Scale', icon: Layers },
                 { id: 'custom-type', label: 'Custom Live Typing', icon: Type },
+                { id: 'compare', label: 'Compare (A/B)', icon: Columns2 },
                 { id: 'article', label: 'Article Layout', icon: BookOpen },
                 { id: 'glyphs', label: 'Glyphs & Numbers', icon: Maximize2 }
               ].map((tab) => {
@@ -759,12 +967,43 @@ export default function FontPlayground({
               isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
             }`}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <label className={`text-xs font-black uppercase tracking-wider ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                 Interactive Live Preview Text
               </label>
-              <span className="text-[10px] text-slate-400">Type below to preview live</span>
+              
+              {/* Header Text Transform Quick Toggle Toolbar */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider hidden xs:inline">Header Casing:</span>
+                <div className="flex items-center gap-1 p-0.5 rounded-xl border bg-slate-100 dark:bg-slate-950 border-slate-200 dark:border-slate-800">
+                  {[
+                    { id: 'none', label: 'None', preview: 'Aa' },
+                    { id: 'uppercase', label: 'UPPER', preview: 'AA' },
+                    { id: 'lowercase', label: 'lower', preview: 'aa' },
+                    { id: 'capitalize', label: 'Capital', preview: 'Aa Bb' }
+                  ].map((tt) => (
+                    <button
+                      key={tt.id}
+                      type="button"
+                      id={`preview-header-transform-${tt.id}-btn`}
+                      onClick={() => setTextTransform(tt.id as TextTransformOption)}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                        textTransform === tt.id
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : isDark
+                          ? 'text-slate-400 hover:text-white'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                      title={`Toggle header casing to ${tt.label}`}
+                    >
+                      <span className="font-mono text-xs font-bold">{tt.preview}</span>
+                      <span className="hidden sm:inline">{tt.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
+
             <textarea
               id="playground-custom-text-input"
               rows={2}
@@ -949,7 +1188,350 @@ export default function FontPlayground({
               </div>
             )}
 
-            {/* View 3: Article Editorial Mockup */}
+            {/* View: Side-by-Side Comparison Mode */}
+            {previewTab === 'compare' && (
+              <div className="space-y-6">
+                {/* Comparison Control Toolbar Header */}
+                <div
+                  className={`p-4 sm:p-5 rounded-2xl border flex flex-col md:flex-row md:items-center md:justify-between gap-4 transition-colors ${
+                    isDark ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-indigo-600/10 text-indigo-500">
+                        <Columns2 className="w-4 h-4" />
+                      </div>
+                      <span className="text-sm font-black tracking-tight">Side-by-Side Pairing Comparison</span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 font-bold">
+                        A/B Testing
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Pairing A is pinned as your baseline. Adjust Pairing B on the left sidebar to audition alternatives live against the same sample text.
+                    </p>
+                  </div>
+
+                  {/* Actions: Pin Current to A & Swap Pairings */}
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      id="pin-current-pairing-btn"
+                      onClick={handlePinCurrentPairing}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25 flex items-center gap-1.5 transition cursor-pointer"
+                      title="Pin current settings (Pairing B) as baseline Pairing A"
+                    >
+                      <Pin className="w-3.5 h-3.5 text-amber-500 fill-current" />
+                      <span>Pin Current to A</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      id="swap-compare-pairings-btn"
+                      onClick={handleSwapPairings}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition cursor-pointer ${
+                        isDark
+                          ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                          : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+                      }`}
+                      title="Swap Pairing A and Pairing B"
+                    >
+                      <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-500" />
+                      <span>Swap A &amp; B</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quick Presets for Auditioning Pairing B */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
+                      Quick Test Presets on Candidate B:
+                    </span>
+                    <span className="text-[10px] text-slate-400">Click any preset to compare against Pinned A</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CURATED_PAIRINGS.map((p) => {
+                      const isCandidateActive = headerFont === p.headerFont && bodyFont === p.bodyFont;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => handleSelectCuratedPairing(p)}
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border transition cursor-pointer flex items-center gap-1.5 ${
+                            isCandidateActive
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                              : isDark
+                              ? 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                              : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300'
+                          }`}
+                        >
+                          <span>{p.name}</span>
+                          <span className="text-[9px] opacity-70 font-normal">({p.headerFont} + {p.bodyFont})</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Two-Column Side-by-Side Cards */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+                  {/* COLUMN 1: PINNED PAIRING A */}
+                  <div
+                    className={`p-6 sm:p-7 rounded-3xl border flex flex-col justify-between space-y-6 transition-all ${
+                      isDark
+                        ? 'bg-slate-950/60 border-amber-500/30 ring-1 ring-amber-500/10'
+                        : 'bg-amber-500/5 border-amber-500/30 shadow-xs'
+                    }`}
+                  >
+                    <div className="space-y-6">
+                      {/* Column Header */}
+                      <div className="flex items-center justify-between gap-2 border-b pb-4 border-amber-500/20">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500 text-slate-950 flex items-center gap-1 shrink-0">
+                            <Pin className="w-3 h-3 fill-current" />
+                            Pairing A (Pinned)
+                          </span>
+                          <span className="text-xs font-bold text-amber-600 dark:text-amber-400 truncate">
+                            {pinnedPairing.label || `${pinnedPairing.headerFont} + ${pinnedPairing.bodyFont}`}
+                          </span>
+                        </div>
+                        {onApplyFontPairing && (
+                          <button
+                            type="button"
+                            id="apply-pairing-a-btn"
+                            onClick={() =>
+                              handleApplySpecificPairing(
+                                pinnedPairing.headerFont,
+                                pinnedPairing.headerCategory,
+                                pinnedPairing.bodyFont,
+                                pinnedPairing.bodyCategory,
+                                pinnedPairing.scaleRatio
+                              )
+                            }
+                            className="px-2.5 py-1 rounded-xl text-[10px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition cursor-pointer shrink-0"
+                            title="Apply Pairing A to active Brand Bible"
+                          >
+                            Apply A
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Font Meta Tags */}
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <div className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-[11px]">
+                          <span className="text-slate-400">Head:</span>{' '}
+                          <strong className="text-amber-600 dark:text-amber-400">{pinnedPairing.headerFont}</strong> (
+                          {pinnedPairing.headerCategory}, {pinnedPairing.headerWeight}w)
+                        </div>
+                        <div className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-[11px]">
+                          <span className="text-slate-400">Body:</span>{' '}
+                          <strong className="text-amber-600 dark:text-amber-400">{pinnedPairing.bodyFont}</strong> (
+                          {pinnedPairing.bodyCategory}, {pinnedPairing.bodyWeight}w)
+                        </div>
+                      </div>
+
+                      {/* H1 Display Preview */}
+                      <div className="space-y-1 border-b pb-4 border-slate-100 dark:border-slate-800/80">
+                        <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                          Display Headline ({computedPinnedScales.h1.px}px)
+                        </div>
+                        <h1
+                          style={{
+                            fontFamily: `'${pinnedPairing.headerFont}', sans-serif`,
+                            fontSize: `${computedPinnedScales.h1.px}px`,
+                            fontWeight: pinnedPairing.headerWeight,
+                            lineHeight: pinnedPairing.lineHeight,
+                            letterSpacing: `${pinnedPairing.letterSpacing}px`,
+                            textTransform: pinnedPairing.textTransform
+                          }}
+                          className="font-black leading-tight tracking-tight break-words transition-all"
+                        >
+                          {customUserText || 'Headline Level 1'}
+                        </h1>
+                      </div>
+
+                      {/* H3 Sub-headline */}
+                      <div className="space-y-1 border-b pb-4 border-slate-100 dark:border-slate-800/80">
+                        <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                          Section Header ({computedPinnedScales.h3.px}px)
+                        </div>
+                        <h3
+                          style={{
+                            fontFamily: `'${pinnedPairing.headerFont}', sans-serif`,
+                            fontSize: `${computedPinnedScales.h3.px}px`,
+                            fontWeight: pinnedPairing.headerWeight,
+                            lineHeight: 1.3,
+                            textTransform: pinnedPairing.textTransform
+                          }}
+                          className="font-bold break-words transition-all"
+                        >
+                          Harmonic Typographic System
+                        </h3>
+                      </div>
+
+                      {/* Body Copy */}
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                          Body Text ({computedPinnedScales.body.px}px)
+                        </div>
+                        <p
+                          style={{
+                            fontFamily: `'${pinnedPairing.bodyFont}', sans-serif`,
+                            fontSize: `${computedPinnedScales.body.px}px`,
+                            fontWeight: pinnedPairing.bodyWeight,
+                            lineHeight: pinnedPairing.lineHeight,
+                            letterSpacing: `${pinnedPairing.letterSpacing}px`
+                          }}
+                          className="leading-relaxed text-slate-700 dark:text-slate-300 transition-all text-sm sm:text-base"
+                        >
+                          {customUserText} This baseline specimen demonstrates optical balance between {pinnedPairing.headerFont} and {pinnedPairing.bodyFont} under {pinnedPairing.scaleRatio}x modular cadence.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Specimen Strip */}
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800/80 text-xs font-mono text-slate-400 space-y-1">
+                      <div style={{ fontFamily: `'${pinnedPairing.headerFont}', sans-serif` }} className="text-sm font-bold truncate">
+                        ABCDEFGHIJKLMNOPQRSTUVWXYZ
+                      </div>
+                      <div style={{ fontFamily: `'${pinnedPairing.bodyFont}', sans-serif` }} className="text-xs truncate">
+                        abcdefghijklmnopqrstuvwxyz 0123456789
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* COLUMN 2: CANDIDATE PAIRING B */}
+                  <div
+                    className={`p-6 sm:p-7 rounded-3xl border flex flex-col justify-between space-y-6 transition-all ${
+                      isDark
+                        ? 'bg-slate-950/60 border-indigo-500/40 ring-1 ring-indigo-500/10'
+                        : 'bg-indigo-500/5 border-indigo-500/40 shadow-xs'
+                    }`}
+                  >
+                    <div className="space-y-6">
+                      {/* Column Header */}
+                      <div className="flex items-center justify-between gap-2 border-b pb-4 border-indigo-500/20">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-600 text-white flex items-center gap-1 shrink-0">
+                            <Sparkles className="w-3 h-3" />
+                            Pairing B (Active)
+                          </span>
+                          <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 truncate">
+                            Exploring Candidate
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            id="pin-b-as-a-btn"
+                            onClick={handlePinCurrentPairing}
+                            className="px-2.5 py-1 rounded-xl text-[10px] font-bold border border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 transition cursor-pointer flex items-center gap-1"
+                            title="Set Candidate B as new Pinned Baseline A"
+                          >
+                            <Pin className="w-3 h-3" />
+                            <span>Pin as A</span>
+                          </button>
+                          {onApplyFontPairing && (
+                            <button
+                              type="button"
+                              id="apply-pairing-b-btn"
+                              onClick={handleApplyToBrandBible}
+                              className="px-2.5 py-1 rounded-xl text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-xs cursor-pointer"
+                              title="Apply Pairing B to active Brand Bible"
+                            >
+                              Apply B
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Font Meta Tags */}
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <div className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-[11px]">
+                          <span className="text-slate-400">Head:</span>{' '}
+                          <strong className="text-indigo-600 dark:text-indigo-400">{headerFont}</strong> ({headerCategory},{' '}
+                          {headerWeight}w)
+                        </div>
+                        <div className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-[11px]">
+                          <span className="text-slate-400">Body:</span>{' '}
+                          <strong className="text-indigo-600 dark:text-indigo-400">{bodyFont}</strong> ({bodyCategory},{' '}
+                          {bodyWeight}w)
+                        </div>
+                      </div>
+
+                      {/* H1 Display Preview */}
+                      <div className="space-y-1 border-b pb-4 border-slate-100 dark:border-slate-800/80">
+                        <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                          Display Headline ({computedScales.h1.px}px)
+                        </div>
+                        <h1
+                          style={{
+                            fontFamily: `'${headerFont}', sans-serif`,
+                            fontSize: `${computedScales.h1.px}px`,
+                            fontWeight: headerWeight,
+                            lineHeight: lineHeight,
+                            letterSpacing: `${letterSpacing}px`,
+                            textTransform
+                          }}
+                          className="font-black leading-tight tracking-tight break-words transition-all"
+                        >
+                          {customUserText || 'Headline Level 1'}
+                        </h1>
+                      </div>
+
+                      {/* H3 Sub-headline */}
+                      <div className="space-y-1 border-b pb-4 border-slate-100 dark:border-slate-800/80">
+                        <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                          Section Header ({computedScales.h3.px}px)
+                        </div>
+                        <h3
+                          style={{
+                            fontFamily: `'${headerFont}', sans-serif`,
+                            fontSize: `${computedScales.h3.px}px`,
+                            fontWeight: headerWeight,
+                            lineHeight: 1.3,
+                            textTransform
+                          }}
+                          className="font-bold break-words transition-all"
+                        >
+                          Harmonic Typographic System
+                        </h3>
+                      </div>
+
+                      {/* Body Copy */}
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                          Body Text ({computedScales.body.px}px)
+                        </div>
+                        <p
+                          style={{
+                            fontFamily: `'${bodyFont}', sans-serif`,
+                            fontSize: `${computedScales.body.px}px`,
+                            fontWeight: bodyWeight,
+                            lineHeight: lineHeight,
+                            letterSpacing: `${letterSpacing}px`
+                          }}
+                          className="leading-relaxed text-slate-700 dark:text-slate-300 transition-all text-sm sm:text-base"
+                        >
+                          {customUserText} This candidate specimen reflects live parameter updates from the controls sidebar, enabling immediate aesthetic contrast analysis.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Specimen Strip */}
+                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800/80 text-xs font-mono text-slate-400 space-y-1">
+                      <div style={{ fontFamily: `'${headerFont}', sans-serif` }} className="text-sm font-bold truncate">
+                        ABCDEFGHIJKLMNOPQRSTUVWXYZ
+                      </div>
+                      <div style={{ fontFamily: `'${bodyFont}', sans-serif` }} className="text-xs truncate">
+                        abcdefghijklmnopqrstuvwxyz 0123456789
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             {previewTab === 'article' && (
               <div className="space-y-6 max-w-2xl mx-auto">
                 <div className="inline-block px-3 py-1 rounded-full text-[11px] font-bold bg-indigo-500/10 text-indigo-500">
@@ -962,7 +1544,8 @@ export default function FontPlayground({
                     fontSize: `${computedScales.h1.px}px`,
                     fontWeight: headerWeight,
                     lineHeight: 1.2,
-                    letterSpacing: `${letterSpacing}px`
+                    letterSpacing: `${letterSpacing}px`,
+                    textTransform
                   }}
                   className="font-black leading-tight"
                 >
@@ -1001,7 +1584,8 @@ export default function FontPlayground({
                     fontFamily: `'${headerFont}', sans-serif`,
                     fontSize: `${computedScales.h3.px}px`,
                     fontWeight: headerWeight,
-                    lineHeight: 1.3
+                    lineHeight: 1.3,
+                    textTransform
                   }}
                   className="pt-2 font-bold"
                 >

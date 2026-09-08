@@ -54,6 +54,29 @@ const staggerItemVariants = {
   },
 };
 
+const dashboardStaggerContainerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1,
+      delayChildren: 0.05,
+    },
+  },
+};
+
+const dashboardCardVariants = {
+  hidden: { opacity: 0, y: 24 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.45,
+      ease: [0.16, 1, 0.3, 1],
+    },
+  },
+};
+
 export interface PersonalityTrait {
   trait: string;
   score: number;
@@ -2428,9 +2451,19 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
   };
 
   return (
-    <div id="brand-bible-dashboard" className="space-y-8">
+    <motion.div
+      id="brand-bible-dashboard"
+      key={bible.id || bible.companyName}
+      variants={dashboardStaggerContainerVariants}
+      initial="hidden"
+      animate="visible"
+      className="space-y-8"
+    >
       {/* Overview Block */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-8 shadow-lg relative overflow-hidden font-sans border border-slate-800">
+      <motion.div
+        variants={dashboardCardVariants}
+        className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-8 shadow-lg relative overflow-hidden font-sans border border-slate-800"
+      >
         <div className="absolute right-0 top-0 w-64 h-64 bg-indigo-600 rounded-full filter blur-3xl opacity-20 -mr-16 -mt-16" />
         <div className="relative z-10 space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -2691,13 +2724,14 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Grid: Primary Logo + Keywords/Voice */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <motion.div variants={dashboardCardVariants} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Logo Card */}
-        <div
+        <motion.div
           id="logo-branding-card"
+          variants={dashboardCardVariants}
           className={`lg:col-span-7 border rounded-3xl p-8 shadow-sm flex flex-col justify-between transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
           }`}
@@ -3105,10 +3139,11 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
               </div>
             )}
           </div>
-        </div>
+        </motion.div>
 
         {/* Brand Core Card (Voice + Keywords) */}
-        <div
+        <motion.div
+          variants={dashboardCardVariants}
           id="brand-core-guideline-card"
           className={`lg:col-span-5 border rounded-3xl p-8 shadow-sm flex flex-col justify-between transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -3285,11 +3320,12 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
               </ul>
             </div>
           </div>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
       {/* 03b / Mission-Driven Brand Personality Radar Widget */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="brand-personality-radar-section"
         className={`border rounded-3xl p-6 sm:p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -3555,10 +3591,11 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Brand Favicon & Web Tab Identity Section */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="brand-favicon-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -3840,10 +3877,11 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </div>
           </div>
         )}
-      </div>
+      </motion.div>
 
       {/* Brand Archetype & Personality Section */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="brand-archetype-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -4048,10 +4086,11 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </button>
           </div>
         )}
-      </div>
+      </motion.div>
 
       {/* Brand Voice & Written Communication Guidelines Section */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="brand-voice-written-communication-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -4435,10 +4474,11 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Brand Voice Metrics Spider Chart Section */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="brand-voice-radar-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -4660,10 +4700,11 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             )}
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* AI Prompt Templates Module for Marketing Content */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="ai-prompt-templates-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -4900,52 +4941,55 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </span>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* 03d. Brand Voice & Archetype Copy Rephrase Editor */}
-      <BrandVoiceEditor
-        bible={bible}
-        isDark={isDark}
-        onUpdateMission={(newMission) => {
-          if (onUpdateMission) {
-            onUpdateMission(newMission);
-          } else if (onUpdateBible) {
-            onUpdateBible({ ...bible, mission: newMission });
-          }
-        }}
-        onUpdateTagline={(newTagline) => {
-          if (onUpdateTagline) {
-            onUpdateTagline(newTagline);
-          } else if (bible.archetype) {
-            onUpdateArchetype({ ...bible.archetype, tagline: newTagline });
-          } else if (onUpdateBible) {
-            onUpdateBible({
-              ...bible,
-              archetype: {
-                primaryArchetype: bible.archetype?.primaryArchetype || 'The Creator',
-                tagline: newTagline,
-                summary: bible.archetype?.summary || 'Visionary craft and original execution.',
-                attributes: bible.archetype?.attributes || ['Creative', 'Visionary'],
-                scores: bible.archetype?.scores || []
-              }
-            });
-          }
-        }}
-        onUpdateVoice={(newVoice) => {
-          if (onUpdateVoice) {
-            onUpdateVoice(newVoice);
-          } else if (onUpdateBible) {
-            onUpdateBible({ ...bible, brandVoice: newVoice });
-          }
-        }}
-        onShowToast={(message, hex) => {
-          setToast({ message, hex: hex || bible.colorPalette[0]?.hex || '#6366f1' });
-          setTimeout(() => setToast(null), 2500);
-        }}
-      />
+      <motion.div variants={dashboardCardVariants}>
+        <BrandVoiceEditor
+          bible={bible}
+          isDark={isDark}
+          onUpdateMission={(newMission) => {
+            if (onUpdateMission) {
+              onUpdateMission(newMission);
+            } else if (onUpdateBible) {
+              onUpdateBible({ ...bible, mission: newMission });
+            }
+          }}
+          onUpdateTagline={(newTagline) => {
+            if (onUpdateTagline) {
+              onUpdateTagline(newTagline);
+            } else if (bible.archetype) {
+              onUpdateArchetype({ ...bible.archetype, tagline: newTagline });
+            } else if (onUpdateBible) {
+              onUpdateBible({
+                ...bible,
+                archetype: {
+                  primaryArchetype: bible.archetype?.primaryArchetype || 'The Creator',
+                  tagline: newTagline,
+                  summary: bible.archetype?.summary || 'Visionary craft and original execution.',
+                  attributes: bible.archetype?.attributes || ['Creative', 'Visionary'],
+                  scores: bible.archetype?.scores || []
+                }
+              });
+            }
+          }}
+          onUpdateVoice={(newVoice) => {
+            if (onUpdateVoice) {
+              onUpdateVoice(newVoice);
+            } else if (onUpdateBible) {
+              onUpdateBible({ ...bible, brandVoice: newVoice });
+            }
+          }}
+          onShowToast={(message, hex) => {
+            setToast({ message, hex: hex || bible.colorPalette[0]?.hex || '#6366f1' });
+            setTimeout(() => setToast(null), 2500);
+          }}
+        />
+      </motion.div>
 
       {/* Brand Analytics Section */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="brand-analytics-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -5144,10 +5188,11 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Brand Pattern Generator Section */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="brand-pattern-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -6050,10 +6095,11 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Competitive Benchmarking Section */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="competitive-benchmarking-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 mt-8 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -6397,10 +6443,11 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </div>
           </div>
         )}
-      </div>
+      </motion.div>
 
       {/* Color Palette Section */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="color-palette-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -7884,10 +7931,11 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Typography pairing section */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="typography-pairing-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -8044,7 +8092,7 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </div>
           </motion.div>
         </motion.div>
-      </div>
+      </motion.div>
 
       {/* 06 / Tiled Geometric Brand Pattern Previewer */}
       {(() => {
@@ -8070,7 +8118,8 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         });
 
         return (
-          <div
+          <motion.div
+            variants={dashboardCardVariants}
             id="geometric-pattern-previewer-section"
             className={`border rounded-3xl p-6 sm:p-8 shadow-sm transition-all duration-300 ${
               isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
@@ -8691,7 +8740,7 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
         );
       })()}
 
@@ -8768,7 +8817,8 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         };
 
         return (
-          <div
+          <motion.div
+            variants={dashboardCardVariants}
             id="motion-identity-section"
             className={`border rounded-3xl p-6 sm:p-8 shadow-sm transition-all duration-300 ${
               isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
@@ -8959,12 +9009,13 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                 </div>
               </div>
             </div>
-          </div>
+          </motion.div>
         );
       })()}
 
       {/* 07a / Programmatic Logo Usage Rules & Design Specifications Section */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="logo-usage-rules-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -9552,10 +9603,11 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
           </div>
 
         </div>
-      </div>
+      </motion.div>
 
       {/* Guidelines: Dos & Don'ts */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="guidelines-dos-donts-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -9615,23 +9667,26 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
             </ul>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* 08 / Social Media Profile Banners & Marketing Templates Section */}
-      <SocialBannersSection
-        bible={bible}
-        isDark={isDark}
-        onShowToast={(msg, hex) => {
-          setToast({
-            message: msg,
-            hex: hex || bible.colorPalette[0]?.hex || '#4f46e5'
-          });
-          setTimeout(() => setToast(null), 2500);
-        }}
-      />
+      <motion.div variants={dashboardCardVariants}>
+        <SocialBannersSection
+          bible={bible}
+          isDark={isDark}
+          onShowToast={(msg, hex) => {
+            setToast({
+              message: msg,
+              hex: hex || bible.colorPalette[0]?.hex || '#4f46e5'
+            });
+            setTimeout(() => setToast(null), 2500);
+          }}
+        />
+      </motion.div>
 
       {/* 09 / Download Brand Assets Section */}
-      <div
+      <motion.div
+        variants={dashboardCardVariants}
         id="download-brand-assets-section"
         className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -9738,7 +9793,7 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         {/* Compiled Content Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 font-sans">
           {/* Card 1: Logo Specification */}
-          <div className={`border rounded-2xl p-6 flex flex-col justify-between transition-all duration-300 ${
+          <motion.div variants={dashboardCardVariants} className={`border rounded-2xl p-6 flex flex-col justify-between transition-all duration-300 ${
             isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
           }`}>
             <div className="space-y-3">
@@ -9782,10 +9837,10 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
 
           {/* Card 2: 5-Color Palette */}
-          <div className={`border rounded-2xl p-6 flex flex-col justify-between transition-all duration-300 ${
+          <motion.div variants={dashboardCardVariants} className={`border rounded-2xl p-6 flex flex-col justify-between transition-all duration-300 ${
             isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
           }`}>
             <div className="space-y-3">
@@ -9821,10 +9876,10 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                 </div>
               ))}
             </div>
-          </div>
+          </motion.div>
 
           {/* Card 3: Typography & Fonts */}
-          <div className={`border rounded-2xl p-6 flex flex-col justify-between transition-all duration-300 ${
+          <motion.div variants={dashboardCardVariants} className={`border rounded-2xl p-6 flex flex-col justify-between transition-all duration-300 ${
             isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
           }`}>
             <div className="space-y-3">
@@ -9862,10 +9917,10 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                 </span>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* Card 4: High-Res Canvas Snapshot PNG */}
-          <div className={`border rounded-2xl p-6 flex flex-col justify-between transition-all duration-300 ${
+          <motion.div variants={dashboardCardVariants} className={`border rounded-2xl p-6 flex flex-col justify-between transition-all duration-300 ${
             isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
           }`}>
             <div className="space-y-3">
@@ -9903,9 +9958,9 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                 </>
               )}
             </button>
-          </div>
+          </motion.div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Scrollable, Zoomable Lightbox Modal */}
       <AnimatePresence>
@@ -10434,6 +10489,6 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         bible={bible}
         isDark={isDark}
       />
-    </div>
+    </motion.div>
   );
 }
