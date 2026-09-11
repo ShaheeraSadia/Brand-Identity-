@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BrandBible, FontPairing } from './types';
 import { safeFetchJson } from './utils/api';
+import { generateFallbackBrandBible, generateFallbackSvgLogo } from './utils/fallbackGenerator';
 import { SAMPLE_BRAND_BIBLES } from './utils/sampleData';
 import { decodeBrandBibleFromHash, encodeBrandBibleToHash, generateShareableUrl } from './utils/share';
 import BrandConfigForm from './components/BrandConfigForm';
@@ -343,11 +344,17 @@ export default function App() {
 
     try {
       // Step A: Generate Structured Bible Specifications
-      const generatedSpec = await safeFetchJson('/api/brand/generate-bible', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
+      let generatedSpec: any;
+      try {
+        generatedSpec = await safeFetchJson('/api/brand/generate-bible', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
+        });
+      } catch (apiErr: any) {
+        console.warn("Backend API call failed or encountered serverless error, using resilient fallback generator:", apiErr);
+        generatedSpec = generateFallbackBrandBible(formData);
+      }
 
       const newBible: BrandBible = {
         ...generatedSpec,
@@ -363,31 +370,53 @@ export default function App() {
       // Step B: Auto-synthesize Primary Logo Image in the background
       console.log("Triggering auto-synthesis of brand logo:", newBible.logoPrompt);
       try {
-        const logoData = await safeFetchJson('/api/brand/generate-logo', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: newBible.logoPrompt,
-            size: formData.logoSize
-          })
-        });
+        let logoUrl: string | undefined;
+        try {
+          const logoData = await safeFetchJson('/api/brand/generate-logo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: newBible.logoPrompt,
+              size: formData.logoSize,
+              companyName: formData.companyName
+            })
+          });
+          logoUrl = logoData.imageUrl;
+        } catch (logoApiErr: any) {
+          console.warn("Logo synthesis API call failed, generating vector SVG emblem fallback:", logoApiErr);
+          const primaryHex = newBible.colorPalette?.[0]?.hex || "#4F46E5";
+          const secondaryHex = newBible.colorPalette?.[1]?.hex || "#7C3AED";
+          logoUrl = generateFallbackSvgLogo(newBible.logoPrompt, formData.companyName, primaryHex, secondaryHex);
+        }
 
         const completeBible: BrandBible = {
           ...newBible,
-          primaryLogo: logoData.imageUrl,
-          previousLogos: [logoData.imageUrl]
+          primaryLogo: logoUrl,
+          previousLogos: logoUrl ? [logoUrl] : []
         };
 
-        // Save to persistence
+        setActiveBible(completeBible);
         saveBibleToStorage(completeBible);
       } catch (logoErr: any) {
         console.warn("Logo synthesis failed:", logoErr);
-        // Still save specs even if logo generation errored
         saveBibleToStorage(newBible);
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Failed to generate Brand specification.");
+      // Even in the worst unhandled case, ensure fallback is synthesized so user is never blocked
+      try {
+        const fallbackSpec = generateFallbackBrandBible(formData);
+        const fallbackBible: BrandBible = {
+          ...fallbackSpec,
+          id: `bible-${Date.now()}`,
+          createdAt: new Date().toLocaleDateString(),
+          brandPersonality: formData.brandPersonality
+        };
+        setActiveBible(fallbackBible);
+        saveBibleToStorage(fallbackBible);
+      } catch (_fErr) {
+        setError(err.message || "Failed to generate Brand specification.");
+      }
     } finally {
       setIsLoadingBible(false);
       setIsLoadingLogo(false);
@@ -403,23 +432,34 @@ export default function App() {
     const promptToUse = customPrompt || activeBible.logoPrompt;
 
     try {
-      const data = await safeFetchJson('/api/brand/generate-logo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: promptToUse,
-          size: logoSize
-        })
-      });
+      let logoUrl: string;
+      try {
+        const data = await safeFetchJson('/api/brand/generate-logo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: promptToUse,
+            size: logoSize,
+            companyName: activeBible.companyName
+          })
+        });
+        logoUrl = data.imageUrl;
+      } catch (apiErr: any) {
+        console.warn("Logo generation API failed, generating SVG emblem fallback:", apiErr);
+        const primaryHex = activeBible.colorPalette?.[0]?.hex || "#4F46E5";
+        const secondaryHex = activeBible.colorPalette?.[1]?.hex || "#7C3AED";
+        logoUrl = generateFallbackSvgLogo(promptToUse, activeBible.companyName, primaryHex, secondaryHex);
+      }
 
       const currentPrev = activeBible.previousLogos || (activeBible.primaryLogo ? [activeBible.primaryLogo] : []);
       const updatedBible: BrandBible = {
         ...activeBible,
         logoPrompt: promptToUse,
-        primaryLogo: data.imageUrl,
-        previousLogos: currentPrev.includes(data.imageUrl) ? currentPrev : [...currentPrev, data.imageUrl]
+        primaryLogo: logoUrl,
+        previousLogos: currentPrev.includes(logoUrl) ? currentPrev : [...currentPrev, logoUrl]
       };
 
+      setActiveBible(updatedBible);
       saveBibleToStorage(updatedBible);
     } catch (err: any) {
       console.error(err);

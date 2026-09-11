@@ -12,6 +12,19 @@ const PORT = 3000;
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+  // Normalize incoming URL prefix so both /api/brand/... and /brand/... match seamlessly on Vercel
+  app.use((req, _res, next) => {
+    if (!req.url.startsWith("/api") && req.url.startsWith("/brand")) {
+      req.url = "/api" + req.url;
+    }
+    next();
+  });
+
+  // Health check endpoint for monitoring and keepalive
+  app.get(["/api/health", "/health"], (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString(), env: process.env.NODE_ENV || "development" });
+  });
+
   // Helper to lazy-initialize GenAI to avoid startup crashes if key is initially absent
   let aiInstance: GoogleGenAI | null = null;
   function getGenAI(): GoogleGenAI {
@@ -52,11 +65,11 @@ const PORT = 3000;
 
   // Normalize model strings to supported Gemini API model aliases
   function normalizeModelName(requested?: string): string {
-    if (!requested) return "gemini-2.0-flash";
+    if (!requested) return "gemini-3.6-flash";
     const lower = requested.toLowerCase();
-    if (lower.includes("pro")) return "gemini-1.5-pro";
-    if (lower.includes("lite") || lower.includes("flash-lite")) return "gemini-1.5-flash";
-    return "gemini-2.0-flash";
+    if (lower.includes("pro")) return "gemini-3.1-pro-preview";
+    if (lower.includes("3.8")) return "gemini-3.8-flash";
+    return "gemini-3.6-flash";
   }
 
   // Resilient Gemini text generation with automatic model fallback
@@ -64,9 +77,9 @@ const PORT = 3000;
     const primary = normalizeModelName(primaryModel);
     const modelsToTry = Array.from(new Set([
       primary,
-      "gemini-2.0-flash",
-      "gemini-1.5-flash",
-      "gemini-1.5-pro"
+      "gemini-3.6-flash",
+      "gemini-3.8-flash",
+      "gemini-flash-latest"
     ]));
 
     let lastError: any = null;
@@ -212,7 +225,7 @@ ${customInstructions ? `- Custom Brand Style Requirements: ${customInstructions}
 
 Make sure the color palette contains exactly 5 highly cohesive, professional, modern hex colors matching the brand's aesthetic and personality target. Write detailed strategic notes for how to use each color. Pair two Google Fonts perfectly (one for headers, one for body) to establish a distinctive typography personality. Provide a highly descriptive prompt for generating a vector-style primary logo.`;
 
-      const response = await generateContentWithFallback(ai, "gemini-2.0-flash", {
+      const response = await generateContentWithFallback(ai, "gemini-3.6-flash", {
         contents: userPrompt,
         config: {
           systemInstruction: "You are an elite Brand Identity Director and Chief Designer. You craft highly specific, visually stunning, cohesive brand specifications for modern businesses. Avoid generic designs. Your output must be precise and match the requested JSON schema.",
@@ -372,7 +385,7 @@ Provide:
 4. 3 specific attributes/character traits
 5. Scores out of 100 for these 6 major archetypes for the radar chart: 'The Creator', 'The Hero', 'The Sage', 'The Magician', 'The Explorer', 'The Ruler'. Ensure the primary archetype matches one of these or is highly related, and has the highest score.`;
 
-      const response = await generateContentWithFallback(ai, "gemini-2.0-flash", {
+      const response = await generateContentWithFallback(ai, "gemini-3.6-flash", {
         contents: userPrompt,
         config: {
           systemInstruction: "You are an elite Brand Strategy Consultant specializing in Jungian brand archetypes and strategic positioning. Your output must be highly professional and match the requested JSON schema exactly.",
@@ -436,7 +449,7 @@ Task:
 5. Provide 4-5 clear 'Don'ts for written communication' reflecting this brand personality (writing styles or mistakes to avoid).
 6. Provide 2-3 sample brand tagline/copy phrases.`;
 
-      const response = await generateContentWithFallback(ai, "gemini-2.0-flash", {
+      const response = await generateContentWithFallback(ai, "gemini-3.6-flash", {
         contents: userPrompt,
         config: {
           systemInstruction: "You are an elite Brand Tone & Copywriting Strategist. Craft specific, high-converting, personality-aligned written guidelines. Output must match the requested JSON schema.",
@@ -883,7 +896,7 @@ Provide:
 2. A description explaining why this design style and layout matches the brand's personality spectrum and values.
 3. The raw, valid SVG markup string (svgMarkup).`;
 
-      const response = await generateContentWithFallback(ai, "gemini-2.0-flash", {
+      const response = await generateContentWithFallback(ai, "gemini-3.6-flash", {
         contents: userPrompt,
         config: {
           systemInstruction: "You are an elite visual UI/UX designer and design system pattern architect. Your output must be highly professional and match the requested JSON schema exactly.",
@@ -929,7 +942,7 @@ The requested shuffle style is: "${shuffleType || "alternative shades or complem
 
 Generate a new, perfectly matched 5-color palette. Each color MUST have a hex code, a creative and evocative color name, a specific role (one of: 'Primary', 'Secondary', 'Accent', 'Dark Neutral', 'Light Neutral'), and a detailed usage direction. Make sure the 5 roles are distinct (having one of each role is ideal, or well balanced). Return the new palette matching the schema.`;
 
-      const response = await generateContentWithFallback(ai, "gemini-2.0-flash", {
+      const response = await generateContentWithFallback(ai, "gemini-3.6-flash", {
         contents: userPrompt,
         config: {
           systemInstruction: "You are an elite Brand Identity Director specializing in advanced color theory. You design high-end, highly cohesive, modern design color systems. Your output must match the requested JSON schema exactly.",
@@ -989,7 +1002,7 @@ Generate exactly 5 colors. Each color MUST have:
 
 Also provide a 'rationale' (2-3 sentences) explaining how this fresh 5-color palette expresses the brand's core mission and emotional identity.`;
 
-      const response = await generateContentWithFallback(ai, "gemini-2.0-flash", {
+      const response = await generateContentWithFallback(ai, "gemini-3.6-flash", {
         contents: userPrompt,
         config: {
           systemInstruction: "You are an elite AI Brand Identity Consultant specializing in mission-driven color psychology and visual design systems. Return JSON matching the schema.",
@@ -1084,7 +1097,7 @@ Please analyze the brand and any provided logo image to create this favicon.`;
         contents.push(promptText);
       }
 
-      const response = await generateContentWithFallback(ai, "gemini-2.0-flash", {
+      const response = await generateContentWithFallback(ai, "gemini-3.6-flash", {
         contents,
         config: {
           systemInstruction: "You are an elite vector icon designer and brand developer. You specialize in creating beautiful, tileable, and pixel-perfect SVG web favicons. Your output must be highly professional and match the requested JSON schema exactly.",
@@ -1124,7 +1137,7 @@ Please analyze the brand and any provided logo image to create this favicon.`;
       const imageModels = [
         'imagen-3.0-generate-002',
         'imagen-3.0-fast-generate-001',
-        'gemini-2.0-flash'
+        'gemini-2.5-flash-image'
       ];
 
       for (const model of imageModels) {
@@ -1226,7 +1239,7 @@ Please analyze the brand and any provided logo image to create this favicon.`;
 
   // Helper to re-analyze mission and generate updated brand bible
   async function performMissionReanalysis(ai: any, brandBible: any, refinedMission: string, selectedModel?: string) {
-    const modelName = normalizeModelName(selectedModel || "gemini-2.0-flash");
+    const modelName = normalizeModelName(selectedModel || "gemini-3.6-flash");
     const companyName = brandBible?.companyName || "Innovate Co";
     const industry = brandBible?.industry || "Technology & Design";
     const targetAudience = brandBible?.targetAudience || "Modern Businesses & Professionals";
@@ -1411,7 +1424,7 @@ Write a high-converting, deeply resonant sample paragraph of brand marketing cop
 
 Return a JSON object matching the schema.`;
 
-      const response = await generateContentWithFallback(ai, "gemini-2.0-flash", {
+      const response = await generateContentWithFallback(ai, "gemini-3.6-flash", {
         contents: userPrompt,
         config: {
           systemInstruction: "You are an elite Brand Director and Copywriter. You output perfectly structured marketing copy matching the requested JSON schema.",
@@ -1644,7 +1657,7 @@ Make sure all hex codes start with '#' and contain valid 6-character hex colors.
     try {
       const { brandBible, selectedModel } = req.body;
       const ai = getGenAI();
-      const modelName = normalizeModelName(selectedModel || "gemini-2.0-flash");
+      const modelName = normalizeModelName(selectedModel || "gemini-3.6-flash");
 
       const companyName = brandBible?.companyName || "Brand";
       const mission = brandBible?.mission || "Not specified";
@@ -1899,16 +1912,39 @@ Output must be strictly JSON matching the required schema.`;
     }
   });
 
+  // Catch-all 404 for API routes so serverless requests never hang
+  app.use(["/api", "/brand"], (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl || req.url}` });
+  });
+
   // Global Express error handler ensures errors return JSON instead of HTML
   app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error("Global express error handler:", err);
     res.status(500).json({ error: err?.message || "An unexpected server error occurred." });
   });
 
-  // Serve Frontend & Start listening only if not running on Vercel as a Serverless function
+  // Determine if server.ts was executed directly as entrypoint or imported as a module
+  const isDirectRun = Boolean(
+    process.argv[1] && (
+      process.argv[1].endsWith('server.ts') || 
+      process.argv[1].endsWith('server.cjs') ||
+      process.argv[1].endsWith('server.js')
+    )
+  );
+
+  // Serverless detection (Vercel, AWS Lambda, etc.) or imported module
+  const isServerless = Boolean(
+    process.env.VERCEL || 
+    process.env.VERCEL_ENV || 
+    process.env.NOW_REGION || 
+    process.env.AWS_LAMBDA_FUNCTION_NAME || 
+    process.env.LAMBDA_TASK_ROOT ||
+    !isDirectRun
+  );
+
+  // Serve Frontend & Start listening only if running standalone (not in serverless function)
   async function startServer() {
-    if (process.env.VERCEL === "1") {
-      // On Vercel, static files are handled natively by Vercel routing
+    if (isServerless) {
       return;
     }
 
@@ -1932,6 +1968,10 @@ Output must be strictly JSON matching the required schema.`;
     });
   }
 
-  startServer();
+  if (!isServerless) {
+    startServer().catch(err => {
+      console.error("Failed to start server:", err);
+    });
+  }
 
   export default app;

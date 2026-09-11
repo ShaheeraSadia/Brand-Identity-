@@ -1,5 +1,10 @@
 {
   "version": 2,
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 60
+    }
+  },
   "builds": [
     {
       "src": "package.json",
@@ -10,7 +15,11 @@
     },
     {
       "src": "api/index.ts",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["node_modules/@google/genai/**"],
+        "maxDuration": 60
+      }
     }
   ],
   "routes": [
