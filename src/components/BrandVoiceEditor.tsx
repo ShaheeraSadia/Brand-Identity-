@@ -383,7 +383,7 @@ export function BrandVoiceEditor({
   return (
     <div
       id="brand-voice-editor-section"
-      className={`border rounded-3xl p-6 sm:p-8 shadow-sm transition-all duration-300 ${
+      className={`scroll-mt-8 border rounded-3xl p-6 sm:p-8 shadow-sm transition-all duration-300 ${
         isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
       }`}
     >
@@ -444,9 +444,9 @@ export function BrandVoiceEditor({
       </div>
 
       {/* Main Studio Body Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 w-full">
         {/* Left Column (5 Cols): Archetype Selector, Presets & Copy Input */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 min-w-0 w-full space-y-6">
           {/* 1. Brand Archetype Selector Grid */}
           <div className={`p-4 sm:p-5 border rounded-2xl transition-all ${
             isDark ? 'bg-slate-950/70 border-slate-800' : 'bg-slate-50/70 border-slate-200'
@@ -725,7 +725,7 @@ export function BrandVoiceEditor({
         </div>
 
         {/* Right Column (7 Cols): Rephrased Variations & Live Canvas Preview */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className="lg:col-span-7 min-w-0 w-full space-y-6">
           {/* Top Preview Canvas Control Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-slate-200/20">
             <div className="flex items-center gap-2">

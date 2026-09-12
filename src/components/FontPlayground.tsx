@@ -560,10 +560,10 @@ export default function FontPlayground({
       </div>
 
       {/* Main Studio Grid: Left Controls (4 cols) & Right Live Preview (8 cols) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start w-full">
         
         {/* Left Control Panel: Pairings, Selectors, Sliders */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 min-w-0 w-full space-y-6">
           
           {/* Curated Pairings Presets */}
           <div
@@ -898,7 +898,7 @@ export default function FontPlayground({
         </div>
 
         {/* Right Live Preview Canvas (7 cols) */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className="lg:col-span-7 min-w-0 w-full space-y-6">
           
           {/* Preview Navigation Tabs & Mode Selector */}
           <div

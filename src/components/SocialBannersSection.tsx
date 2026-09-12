@@ -853,7 +853,7 @@ export const SocialBannersSection: React.FC<SocialBannersSectionProps> = ({
   return (
     <div
       id="social-banners-brand-section"
-      className={`border rounded-3xl p-6 sm:p-8 shadow-sm transition-all duration-300 ${
+      className={`scroll-mt-8 border rounded-3xl p-6 sm:p-8 shadow-sm transition-all duration-300 ${
         isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
       }`}
     >
@@ -913,9 +913,9 @@ export const SocialBannersSection: React.FC<SocialBannersSectionProps> = ({
       </div>
 
       {/* Main Grid: Controls Left + Live Stage Right */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start w-full">
         {/* Left Column: Preset Switcher & Customizer Controls (5 Cols) */}
-        <div className="lg:col-span-5 space-y-6 text-left font-sans">
+        <div className="lg:col-span-5 min-w-0 w-full space-y-6 text-left font-sans">
           {/* 1. Format & Platform Selector */}
           <div
             className={`p-4 sm:p-5 rounded-2xl border space-y-4 ${
@@ -1257,7 +1257,7 @@ export const SocialBannersSection: React.FC<SocialBannersSectionProps> = ({
         </div>
 
         {/* Right Column: Live Rendering Canvas Stage & Download Bar (7 Cols) */}
-        <div className="lg:col-span-7 space-y-4">
+        <div className="lg:col-span-7 min-w-0 w-full space-y-4">
           {/* Top Live Stage Toolbar */}
           <div className="flex flex-wrap items-center justify-between gap-2.5 pb-1">
             <div className="flex items-center gap-2">

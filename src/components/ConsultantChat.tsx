@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage, BrandBible, Color } from '../types';
 import { safeFetchJson } from '../utils/api';
+import { sanitizeString } from '../utils/security';
 import { Send, Sparkles, User, BrainCircuit, AlertCircle, Palette, Check, RefreshCw, Target, ArrowRight, Mic, MicOff } from 'lucide-react';
 
 const getSpeechRecognition = () => {
@@ -311,10 +312,13 @@ export default function ConsultantChat({ brandBible, onUpdatePalette, onUpdateBr
       setIsMissionListening(false);
     }
 
+    const cleanText = sanitizeString(textToSend, 2000);
+    const cleanRefinedMission = refinedMissionText ? sanitizeString(refinedMissionText, 1500) : undefined;
+
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       role: 'user',
-      text: textToSend,
+      text: cleanText,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
@@ -330,12 +334,12 @@ export default function ConsultantChat({ brandBible, onUpdatePalette, onUpdateBr
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           history: messages.concat(userMsg),
-          message: textToSend,
+          message: cleanText,
           brandBible,
           selectedModel,
           requestedPaletteType: paletteType,
-          isReanalyzeMission: isReanalyzeMission || Boolean(refinedMissionText),
-          refinedMission: refinedMissionText
+          isReanalyzeMission: isReanalyzeMission || Boolean(cleanRefinedMission),
+          refinedMission: cleanRefinedMission
         })
       });
 

@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, Building2, Target, HelpCircle, Palette, Layers, Globe, Sliders, CheckCircle2, RotateCcw, ArrowRight, ArrowLeft, Mic, MicOff, Volume2, AlertCircle, History } from 'lucide-react';
+import { Sparkles, Building2, Target, HelpCircle, Palette, Layers, Globe, Sliders, CheckCircle2, RotateCcw, ArrowRight, ArrowLeft, Mic, MicOff, Volume2, AlertCircle, History, ShieldCheck } from 'lucide-react';
+import FormSecurityBadge from './FormSecurityBadge';
+import {
+  sanitizeString,
+  analyzeInputThreats,
+  isHoneypotTriggered,
+  FormRateLimiter,
+  secureStorage
+} from '../utils/security';
 
 interface BrandConfigFormProps {
   onSubmit: (data: {
@@ -146,6 +154,13 @@ export default function BrandConfigForm({ onSubmit, isLoading, isDark = false }:
   const [logoSize, setLogoSize] = useState<'1K' | '2K' | '4K'>('1K');
   const [brandPersonality, setBrandPersonality] = useState(50);
 
+  // Anti-Hacker Security & Form Armor States
+  const [honeypotToken, setHoneypotToken] = useState('');
+  const [securityAlert, setSecurityAlert] = useState<string | null>(null);
+  const [blockedThreatsCount, setBlockedThreatsCount] = useState<number>(0);
+  const [lastThreatSanitized, setLastThreatSanitized] = useState<string | null>(null);
+  const rateLimiterRef = useRef(new FormRateLimiter({ maxSubmissions: 6, windowMs: 60000, cooldownMs: 1500 }));
+
   // Interactive Personality Quiz states
   const [showQuiz, setShowQuiz] = useState<boolean>(false);
   const [quizStep, setQuizStep] = useState<number>(0);
@@ -268,20 +283,9 @@ export default function BrandConfigForm({ onSubmit, isLoading, isDark = false }:
     }
   };
 
-  // Recent Prompts State
+  // Recent Prompts State (Secured via secureStorage)
   const [recentPrompts, setRecentPrompts] = useState<RecentPrompt[]>(() => {
-    try {
-      const saved = localStorage.getItem('brand_generator_recent_prompts');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.slice(0, 5);
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to parse recent prompts:', e);
-    }
-    return DEFAULT_RECENT_PROMPTS;
+    return secureStorage.getItem<RecentPrompt[]>('brand_generator_recent_prompts', DEFAULT_RECENT_PROMPTS);
   });
 
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
@@ -313,34 +317,76 @@ export default function BrandConfigForm({ onSubmit, isLoading, isDark = false }:
     e.preventDefault();
     if (!companyName || !mission) return;
 
-    // Save prompt to recent prompts history (max 5)
+    // 1. Anti-Hacker Honeypot Check: Trap and reject automated web scraper bots
+    if (isHoneypotTriggered(honeypotToken)) {
+      setSecurityAlert('Security Defense: Automated bot submission intercepted and blocked.');
+      setBlockedThreatsCount(c => c + 1);
+      setLastThreatSanitized('Automated Bot / Scraper Honeypot Trap');
+      return;
+    }
+
+    // 2. Anti-Spam & Anti-DDoS Flood Rate Limiter
+    const rateCheck = rateLimiterRef.current.check();
+    if (!rateCheck.allowed) {
+      setSecurityAlert(rateCheck.reason || 'Rate limit active. Please pause before submitting again.');
+      return;
+    }
+    rateLimiterRef.current.record();
+
+    // 3. Deep Payload Inspection & XSS/Prompt Injection Sanitization
+    const companyCheck = analyzeInputThreats(companyName, 80);
+    const missionCheck = analyzeInputThreats(mission, 1500);
+    const industryCheck = analyzeInputThreats(industry, 100);
+    const audienceCheck = analyzeInputThreats(targetAudience, 100);
+    const customCheck = analyzeInputThreats(customInstructions, 800);
+
+    const detectedThreats = [
+      ...companyCheck.threatTypes,
+      ...missionCheck.threatTypes,
+      ...industryCheck.threatTypes,
+      ...audienceCheck.threatTypes,
+      ...customCheck.threatTypes
+    ];
+
+    if (detectedThreats.length > 0) {
+      setBlockedThreatsCount(c => c + detectedThreats.length);
+      setLastThreatSanitized(detectedThreats[0]);
+      setSecurityAlert(`Security Notice: ${detectedThreats[0]} neutralized and sanitized.`);
+      setTimeout(() => setSecurityAlert(null), 6000);
+    } else {
+      setSecurityAlert(null);
+    }
+
+    const cleanCompany = companyCheck.sanitized || companyName.trim();
+    const cleanMission = missionCheck.sanitized || mission.trim();
+    const cleanIndustry = industryCheck.sanitized || industry.trim();
+    const cleanAudience = audienceCheck.sanitized || targetAudience.trim();
+    const cleanCustom = customCheck.sanitized || customInstructions.trim();
+
+    // Save sanitized prompt to secure prompts history (max 5)
     const newPrompt: RecentPrompt = {
       id: `prompt-${Date.now()}`,
-      label: companyName ? `${companyName} — ${mission.slice(0, 25)}...` : mission.slice(0, 35) + '...',
-      mission,
-      customInstructions,
-      companyName,
+      label: cleanCompany ? `${cleanCompany} — ${cleanMission.slice(0, 25)}...` : cleanMission.slice(0, 35) + '...',
+      mission: cleanMission,
+      customInstructions: cleanCustom,
+      companyName: cleanCompany,
       timestamp: Date.now()
     };
 
     const updatedPrompts = [
       newPrompt,
-      ...recentPrompts.filter(p => p.mission !== mission || p.customInstructions !== customInstructions)
+      ...recentPrompts.filter(p => p.mission !== cleanMission || p.customInstructions !== cleanCustom)
     ].slice(0, 5);
 
     setRecentPrompts(updatedPrompts);
-    try {
-      localStorage.setItem('brand_generator_recent_prompts', JSON.stringify(updatedPrompts));
-    } catch (err) {
-      console.warn('Failed to save recent prompts to localStorage:', err);
-    }
+    secureStorage.setItem('brand_generator_recent_prompts', updatedPrompts);
 
     onSubmit({
-      companyName,
-      mission,
-      industry,
-      targetAudience,
-      customInstructions,
+      companyName: cleanCompany,
+      mission: cleanMission,
+      industry: cleanIndustry,
+      targetAudience: cleanAudience,
+      customInstructions: cleanCustom,
       logoSize,
       brandPersonality
     });
@@ -354,18 +400,60 @@ export default function BrandConfigForm({ onSubmit, isLoading, isDark = false }:
         isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
       }`}
     >
-      <div className={`space-y-2 border-b pb-5 transition-colors duration-300 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
-        <h2 className={`text-xl font-bold flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
-          isDark ? 'text-white' : 'text-slate-800'
-        }`}>
-          <Sparkles className="w-5 h-5 text-indigo-600 animate-pulse" />
-          Brand Foundation
-        </h2>
+      <div className={`space-y-3 border-b pb-5 transition-colors duration-300 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h2 className={`text-xl font-bold flex items-center gap-2 font-sans tracking-tight transition-colors duration-300 ${
+            isDark ? 'text-white' : 'text-slate-800'
+          }`}>
+            <Sparkles className="w-5 h-5 text-indigo-600 animate-pulse" />
+            Brand Foundation
+          </h2>
+          <FormSecurityBadge
+            isDark={isDark}
+            blockedThreatsCount={blockedThreatsCount}
+            lastThreatSanitized={lastThreatSanitized}
+          />
+        </div>
         <p className={`text-xs font-sans leading-relaxed transition-colors duration-300 ${
           isDark ? 'text-slate-400' : 'text-slate-500'
         }`}>
           Provide your core business mission, and our AI design suite will draft a complete, cohesive Brand Identity System.
         </p>
+
+        {/* Invisible Decoy Honeypot: Traps automated hacker scripts & bots */}
+        <div className="opacity-0 absolute -top-[9999px] -left-[9999px] pointer-events-none h-0 w-0 overflow-hidden" aria-hidden="true">
+          <label htmlFor="brand_config_hp_token">Leave this field empty</label>
+          <input
+            id="brand_config_hp_token"
+            type="text"
+            name="brand_config_hp_token"
+            tabIndex={-1}
+            autoComplete="off"
+            value={honeypotToken}
+            onChange={(e) => setHoneypotToken(e.target.value)}
+          />
+        </div>
+
+        {/* Anti-Hacker Security Feedback Banner */}
+        {securityAlert && (
+          <div className={`p-3 rounded-2xl border text-xs font-medium flex items-center justify-between gap-2 transition-all ${
+            securityAlert.includes('Rate') || securityAlert.includes('blocked') || securityAlert.includes('Security Defense')
+              ? 'bg-rose-500/10 border-rose-500/30 text-rose-500'
+              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
+          }`}>
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{securityAlert}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSecurityAlert(null)}
+              className="text-[10px] underline hover:opacity-80 cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Recent Prompts Dropdown */}
@@ -435,6 +523,7 @@ export default function BrandConfigForm({ onSubmit, isLoading, isDark = false }:
             id="company-name"
             type="text"
             required
+            maxLength={80}
             placeholder="e.g. Lumina Energy"
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
@@ -460,6 +549,7 @@ export default function BrandConfigForm({ onSubmit, isLoading, isDark = false }:
           <input
             id="industry"
             type="text"
+            maxLength={100}
             placeholder="e.g. Clean Tech & Solar Energy"
             value={industry}
             onChange={(e) => setIndustry(e.target.value)}
@@ -508,6 +598,7 @@ export default function BrandConfigForm({ onSubmit, isLoading, isDark = false }:
           <input
             id="target-audience"
             type="text"
+            maxLength={100}
             placeholder="e.g. Modern homeowners & eco-activists"
             value={targetAudience}
             onChange={(e) => setTargetAudience(e.target.value)}
@@ -612,6 +703,7 @@ export default function BrandConfigForm({ onSubmit, isLoading, isDark = false }:
         <textarea
           id="mission"
           required
+          maxLength={1500}
           rows={3}
           placeholder="Describe what your company does, who it serves, and what core problems it solves. Speak or type your core mission."
           value={mission}
@@ -678,6 +770,7 @@ export default function BrandConfigForm({ onSubmit, isLoading, isDark = false }:
           <input
             id="custom-instructions"
             type="text"
+            maxLength={800}
             placeholder="e.g. Emerald & gold accents, warm, serene, vintage luxury"
             value={customInstructions}
             onChange={(e) => setCustomInstructions(e.target.value)}

@@ -611,8 +611,8 @@ export default function App() {
       <div className="h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 w-full" />
 
       {/* App Header */}
-      <header className={`sticky top-0 z-40 backdrop-blur-md border-b transition-all duration-300 ${
-        isDark ? 'bg-slate-900/95 border-slate-800 text-slate-100 shadow-lg shadow-slate-950/20' : 'bg-white/90 border-slate-200/80 text-slate-800 shadow-sm'
+      <header className={`relative z-30 border-b transition-all duration-300 ${
+        isDark ? 'bg-slate-900 border-slate-800 text-slate-100 shadow-md shadow-slate-950/20' : 'bg-white border-slate-200/80 text-slate-800 shadow-xs'
       }`}>
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
           <div className="flex items-center gap-2.5 sm:gap-3 cursor-pointer shrink-0 min-w-0" onClick={() => { setActiveViewPage('studio'); setIsMobileNavOpen(false); }}>
@@ -882,7 +882,7 @@ export default function App() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
                 onClick={() => setIsMobileNavOpen(false)}
-                className="fixed inset-0 top-16 bg-slate-950/60 backdrop-blur-xs z-30"
+                className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50"
               />
 
               {/* Drawer Container: Responsive floating panel on tablet/desktop, full-width dropdown on mobile */}
@@ -893,11 +893,23 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2 }}
-                className={`fixed top-16 z-40 inset-x-0 sm:inset-x-auto sm:right-4 md:right-6 lg:right-8 sm:w-96 sm:rounded-3xl sm:mt-2 max-h-[calc(100vh-5rem)] overflow-y-auto border font-sans transition-colors duration-200 shadow-2xl ${
+                className={`fixed top-4 right-4 sm:right-6 lg:right-8 z-50 inset-x-4 sm:inset-x-auto sm:w-96 rounded-3xl max-h-[calc(100vh-2rem)] overflow-y-auto border font-sans transition-colors duration-200 shadow-2xl ${
                   isDark ? 'bg-slate-900/98 border-slate-800 text-slate-100' : 'bg-white/98 border-slate-200 text-slate-900'
                 }`}
               >
                 <div className="max-w-xl mx-auto px-4 py-4 space-y-3">
+                  {/* Drawer Header */}
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+                    <span className="text-xs font-bold font-sans uppercase tracking-wider text-slate-500 dark:text-slate-400">Navigation Menu</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsMobileNavOpen(false)}
+                      className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
+                      title="Close Menu"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                   {/* Active Brand Quick Strip if present */}
                   {activeBible && (
                     <div className={`p-3.5 rounded-2xl border ${
@@ -1282,10 +1294,10 @@ export default function App() {
               )}
 
               {/* Master Three-Panel Grid Layout */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              <div id="main-workspace-shell" className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start w-full">
                 
                 {/* Column A: Foundation Input Form (Takes up 4 cols on lg screen) */}
-                <div className="lg:col-span-4 space-y-6">
+                <div id="workspace-col-form" className="lg:col-span-4 w-full min-w-0 p-2 space-y-6">
                   <BrandConfigForm
                     onSubmit={handleGenerateBible}
                     isLoading={isLoadingBible || isLoadingLogo}
@@ -1294,9 +1306,9 @@ export default function App() {
                 </div>
 
                 {/* Column B: Dynamic Output Sandbox + Tab Control (Takes up 5 cols) */}
-                <div className="lg:col-span-5 space-y-6">
+                <div id="workspace-col-output" className="lg:col-span-5 w-full min-w-0 p-2 space-y-6">
                   {activeBible ? (
-                    <div className="space-y-4">
+                    <div className="space-y-4 w-full min-w-0">
                       {/* View Toggles */}
                       <div className={`flex border p-1.5 rounded-full shadow-sm transition-all duration-300 ${
                         isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
@@ -1536,7 +1548,7 @@ export default function App() {
                 </div>
 
                 {/* Column C: AI Brand Consultant Drawer (Takes up 3 cols) */}
-                <div className="lg:col-span-3">
+                <div id="workspace-col-consultant" className="lg:col-span-3 w-full min-w-0 p-2 space-y-6">
                   <ConsultantChat
                     brandBible={activeBible}
                     onUpdatePalette={(newPalette) => {

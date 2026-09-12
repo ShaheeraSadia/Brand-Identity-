@@ -2732,7 +2732,7 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         <motion.div
           id="logo-branding-card"
           variants={dashboardCardVariants}
-          className={`lg:col-span-7 border rounded-3xl p-8 shadow-sm flex flex-col justify-between transition-all duration-300 ${
+          className={`lg:col-span-7 min-w-0 w-full border rounded-3xl p-8 shadow-sm flex flex-col justify-between transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
           }`}
         >
@@ -3145,7 +3145,7 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
         <motion.div
           variants={dashboardCardVariants}
           id="brand-core-guideline-card"
-          className={`lg:col-span-5 border rounded-3xl p-8 shadow-sm flex flex-col justify-between transition-all duration-300 ${
+          className={`lg:col-span-5 min-w-0 w-full border rounded-3xl p-8 shadow-sm flex flex-col justify-between transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
           }`}
         >
@@ -6449,7 +6449,7 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
       <motion.div
         variants={dashboardCardVariants}
         id="color-palette-section"
-        className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
+        className={`scroll-mt-8 border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
         }`}
       >
@@ -9688,7 +9688,7 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
       <motion.div
         variants={dashboardCardVariants}
         id="download-brand-assets-section"
-        className={`border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
+        className={`scroll-mt-8 border rounded-3xl p-8 shadow-sm transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
         }`}
       >

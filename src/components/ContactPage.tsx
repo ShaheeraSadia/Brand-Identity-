@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Mail,
@@ -15,8 +15,17 @@ import {
   LifeBuoy,
   Shield,
   Copy,
-  Check
+  Check,
+  AlertTriangle,
+  AlertCircle
 } from 'lucide-react';
+import FormSecurityBadge from './FormSecurityBadge';
+import {
+  validateAndSanitizeEmail,
+  analyzeInputThreats,
+  isHoneypotTriggered,
+  FormRateLimiter
+} from '../utils/security';
 
 interface ContactPageProps {
   key?: React.Key;
@@ -33,6 +42,12 @@ export default function ContactPage({ isDark = false }: ContactPageProps) {
     message: ''
   });
 
+  const [honeypotToken, setHoneypotToken] = useState('');
+  const [securityAlert, setSecurityAlert] = useState<string | null>(null);
+  const [blockedThreatsCount, setBlockedThreatsCount] = useState(0);
+  const [lastThreatSanitized, setLastThreatSanitized] = useState<string | null>(null);
+  const rateLimiterRef = useRef(new FormRateLimiter({ maxSubmissions: 4, windowMs: 60000, cooldownMs: 2000 }));
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [ticketId, setTicketId] = useState('');
@@ -42,6 +57,51 @@ export default function ContactPage({ isDark = false }: ContactPageProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.email || !formData.message) return;
+
+    // 1. Anti-Hacker Honeypot Trap
+    if (isHoneypotTriggered(honeypotToken)) {
+      setSecurityAlert('Security Trap: Automated bot submission intercepted and rejected.');
+      setBlockedThreatsCount(c => c + 1);
+      setLastThreatSanitized('Automated Bot / Web Scraper Honeypot Trap');
+      return;
+    }
+
+    // 2. Anti-Spam Rate Limiter
+    const rateCheck = rateLimiterRef.current.check();
+    if (!rateCheck.allowed) {
+      setSecurityAlert(rateCheck.reason || 'Rate limit active. Please wait.');
+      return;
+    }
+    rateLimiterRef.current.record();
+
+    // 3. Email Validation & Header Injection Guard
+    const emailResult = validateAndSanitizeEmail(formData.email);
+    if (!emailResult.isValid) {
+      setSecurityAlert(emailResult.error || 'Please enter a valid email address.');
+      return;
+    }
+
+    // 4. Threat Analysis & XSS / Script Stripping
+    const nameCheck = analyzeInputThreats(formData.name, 80);
+    const companyCheck = analyzeInputThreats(formData.company, 100);
+    const subjectCheck = analyzeInputThreats(formData.subject, 150);
+    const messageCheck = analyzeInputThreats(formData.message, 2500);
+
+    const detectedThreats = [
+      ...nameCheck.threatTypes,
+      ...companyCheck.threatTypes,
+      ...subjectCheck.threatTypes,
+      ...messageCheck.threatTypes
+    ];
+
+    if (detectedThreats.length > 0) {
+      setBlockedThreatsCount(c => c + detectedThreats.length);
+      setLastThreatSanitized(detectedThreats[0]);
+      setSecurityAlert(`Security Notice: ${detectedThreats[0]} neutralized.`);
+      setTimeout(() => setSecurityAlert(null), 5000);
+    } else {
+      setSecurityAlert(null);
+    }
 
     setIsSubmitting(true);
     setTimeout(() => {
@@ -109,9 +169,9 @@ export default function ContactPage({ isDark = false }: ContactPageProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start w-full">
         {/* Contact Form Column (7 cols) */}
-        <div className={`lg:col-span-7 p-8 rounded-3xl border transition-all duration-300 ${
+        <div className={`lg:col-span-7 min-w-0 w-full p-8 rounded-3xl border transition-all duration-300 ${
           isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
         }`}>
           <AnimatePresence mode="wait">
@@ -124,14 +184,56 @@ export default function ContactPage({ isDark = false }: ContactPageProps) {
                 onSubmit={handleSubmit}
                 className="space-y-5"
               >
-                <div>
-                  <h2 className={`text-lg font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                    Send Us a Message
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Fill out the details below and we will get back to you shortly.
-                  </p>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <h2 className={`text-lg font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      Send Us a Message
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Fill out the details below and we will get back to you shortly.
+                    </p>
+                  </div>
+                  <FormSecurityBadge
+                    isDark={isDark}
+                    blockedThreatsCount={blockedThreatsCount}
+                    lastThreatSanitized={lastThreatSanitized}
+                  />
                 </div>
+
+                {/* Invisible Decoy Honeypot: Traps automated bots */}
+                <div className="opacity-0 absolute -top-[9999px] -left-[9999px] pointer-events-none h-0 w-0 overflow-hidden" aria-hidden="true">
+                  <label htmlFor="contact_hp_token">Leave this field empty</label>
+                  <input
+                    id="contact_hp_token"
+                    type="text"
+                    name="contact_hp_token"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    value={honeypotToken}
+                    onChange={(e) => setHoneypotToken(e.target.value)}
+                  />
+                </div>
+
+                {/* Security Feedback Banner */}
+                {securityAlert && (
+                  <div className={`p-3 rounded-2xl border text-xs font-semibold flex items-center justify-between gap-2 transition-all ${
+                    securityAlert.includes('Rate') || securityAlert.includes('rejected') || securityAlert.includes('Security')
+                      ? 'bg-rose-500/10 border-rose-500/30 text-rose-500'
+                      : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{securityAlert}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSecurityAlert(null)}
+                      className="text-[10px] underline hover:opacity-80 cursor-pointer"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Name */}
@@ -143,6 +245,7 @@ export default function ContactPage({ isDark = false }: ContactPageProps) {
                       id="contact-form-name"
                       type="text"
                       required
+                      maxLength={80}
                       placeholder="Jane Doe"
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -161,6 +264,7 @@ export default function ContactPage({ isDark = false }: ContactPageProps) {
                       id="contact-form-email"
                       type="email"
                       required
+                      maxLength={120}
                       placeholder="jane@company.com"
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -180,6 +284,7 @@ export default function ContactPage({ isDark = false }: ContactPageProps) {
                     <input
                       id="contact-form-company"
                       type="text"
+                      maxLength={100}
                       placeholder="Acme Studio"
                       value={formData.company}
                       onChange={(e) => setFormData({ ...formData, company: e.target.value })}
@@ -218,6 +323,7 @@ export default function ContactPage({ isDark = false }: ContactPageProps) {
                   <input
                     id="contact-form-subject"
                     type="text"
+                    maxLength={150}
                     placeholder="e.g. Exporting brand specification PDF files"
                     value={formData.subject}
                     onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
@@ -235,6 +341,7 @@ export default function ContactPage({ isDark = false }: ContactPageProps) {
                   <textarea
                     id="contact-form-message"
                     required
+                    maxLength={2500}
                     rows={4}
                     placeholder="Describe your inquiry or request in detail..."
                     value={formData.message}
@@ -323,7 +430,7 @@ export default function ContactPage({ isDark = false }: ContactPageProps) {
         </div>
 
         {/* Support Channels & Info Column (5 cols) */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 min-w-0 w-full space-y-6">
           <div className={`p-6 rounded-3xl border space-y-4 ${
             isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
           }`}>

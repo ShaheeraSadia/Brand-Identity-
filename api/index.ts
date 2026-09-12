@@ -2,15 +2,33 @@ import express from "express";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import {
+  securityHeadersMiddleware,
+  rateLimiterMiddleware,
+  honeypotTrapMiddleware,
+  sanitizeRequestBodyMiddleware
+} from "./security.ts";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
+  // Security HTTP Headers (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy)
+  app.use(securityHeadersMiddleware);
+
+  // Rate Limiter: Guard all endpoints against automated bot floods & brute-force spam
+  app.use(rateLimiterMiddleware(60, 60 * 1000));
+
   // Set body parser limits for base64 encoded image transfer
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+  // Honeypot Trap: Immediately reject automated hacker bot submissions
+  app.use(honeypotTrapMiddleware);
+
+  // Input Sanitizer: Strip script tags, null bytes, and prevent prototype pollution
+  app.use(sanitizeRequestBodyMiddleware);
 
   // Normalize incoming URL prefix so both /api/brand/... and /brand/... match seamlessly on Vercel
   app.use((req, _res, next) => {
