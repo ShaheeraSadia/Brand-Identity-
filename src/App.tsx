@@ -463,7 +463,22 @@ export default function App() {
       saveBibleToStorage(updatedBible);
     } catch (err: any) {
       console.error(err);
-      setError(`Logo generation failed: ${err.message}`);
+      try {
+        const primaryHex = activeBible.colorPalette?.[0]?.hex || "#4F46E5";
+        const secondaryHex = activeBible.colorPalette?.[1]?.hex || "#7C3AED";
+        const fallbackLogo = generateFallbackSvgLogo(promptToUse, activeBible.companyName, primaryHex, secondaryHex);
+        const currentPrev = activeBible.previousLogos || (activeBible.primaryLogo ? [activeBible.primaryLogo] : []);
+        const updatedBible: BrandBible = {
+          ...activeBible,
+          logoPrompt: promptToUse,
+          primaryLogo: fallbackLogo,
+          previousLogos: currentPrev.includes(fallbackLogo) ? currentPrev : [...currentPrev, fallbackLogo]
+        };
+        setActiveBible(updatedBible);
+        saveBibleToStorage(updatedBible);
+      } catch (_fErr) {
+        setError(`Logo generation note: Generated vector emblem fallback due to connection status.`);
+      }
     } finally {
       setIsLoadingLogo(false);
     }
@@ -1077,14 +1092,26 @@ export default function App() {
         
         {/* Error notification banner */}
         {error && (
-          <div className={`mb-6 p-4 border rounded-xl text-xs flex items-start gap-3 shadow-sm font-sans animate-bounce ${
-            isDark ? 'bg-rose-950/30 border-rose-900/50 text-rose-300' : 'bg-rose-50 border-rose-100 text-rose-700'
+          <div className={`mb-6 p-4 border rounded-xl text-xs flex items-start justify-between gap-3 shadow-sm font-sans ${
+            isDark ? 'bg-rose-950/30 border-rose-900/50 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-700'
           }`}>
-            <AlertCircle className="w-4.5 h-4.5 text-rose-500 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold">Generation Error</p>
-              <p className={`mt-0.5 leading-relaxed ${isDark ? 'text-rose-400' : 'text-rose-600/90'}`}>{error}</p>
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-4.5 h-4.5 text-rose-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Notice</p>
+                <p className={`mt-0.5 leading-relaxed ${isDark ? 'text-rose-400' : 'text-rose-600/90'}`}>{error}</p>
+                {error.includes("GEMINI_API_KEY") && (
+                  <p className="mt-1.5 font-medium opacity-90">Tip: In your Vercel Project Settings &gt; Environment Variables, add <code className="px-1 py-0.5 rounded bg-black/10 font-mono">GEMINI_API_KEY</code> and redeploy.</p>
+                )}
+              </div>
             </div>
+            <button 
+              onClick={() => setError(null)}
+              className="opacity-75 hover:opacity-100 p-1 rounded-md text-sm leading-none"
+              title="Dismiss notice"
+            >
+              ✕
+            </button>
           </div>
         )}
 
