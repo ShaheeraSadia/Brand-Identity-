@@ -1598,6 +1598,10 @@ Here are the specific Brand Specifications they generated:
 - Color Palette: ${brandBible.colorPalette?.map((c: any) => `${c.name} (${c.hex}) - ${c.role}`).join(", ")}
 - Dos: ${brandBible.doGuidelines?.join("; ")}
 - Don'ts: ${brandBible.dontGuidelines?.join("; ")}
+- Active Logo Prompt: "${brandBible.logoPrompt || 'None'}"
+
+LOGO CUSTOMIZATION CAPABILITIES:
+Users can customize and personalize their brand logo directly in Card 02 ("Visual Trademark") on the dashboard by clicking "Personalize Logo with Commands" (AI Logo Command Studio) or using voice dictation. If the user asks how to customize their logo, or asks for logo ideas, commands, or prompts, guide them to Card 02 and generate 3 bespoke, highly detailed logo commands tailored specifically to their brand name, archetype, and industry that they can copy and synthesize immediately!
 
 CRITICAL BRAND VOICE ADOPTION DIRECTIVE:
 You MUST fully adopt and speak in this company's specific Brand Voice when responding to the user.

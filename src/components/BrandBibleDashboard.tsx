@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { downloadBrandPdf, previewBrandPdfInNewTab, PdfExportOptions } from '../utils/brandPdfGenerator';
 import { PdfExportModal } from './PdfExportModal';
 import { ShareLinkModal } from './ShareLinkModal';
@@ -10,7 +10,7 @@ import { generateShareableUrl, encodeBrandBibleToHash } from '../utils/share';
 import { generatePatternSvg, generatePatternDataUrl, BRAND_PATTERN_TEMPLATES, PatternType, extractBrandColors } from '../utils/patternGenerator';
 import { SocialBannersSection } from './SocialBannersSection';
 import { BrandVoiceEditor } from './BrandVoiceEditor';
-import { Palette, Type, CheckCircle, XCircle, Copy, Check, Download, RefreshCw, FileImage, ShieldCheck, AlignLeft, Eye, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Shuffle, History, Compass, Sparkles, Layers, Grid, Globe, Activity, ThumbsUp, BarChart3, TrendingUp, FileJson, FileText, ChevronDown, Volume2, Sliders, MessageSquare, Code2, Target, Wand2, Bot, Zap, Share2, Lightbulb, Megaphone, X, Info, Search, ExternalLink, ArrowUpRight, Camera, Heart, Columns, LayoutGrid, Star, Ruler, Ban, Sun, Moon, AlertTriangle } from 'lucide-react';
+import { Palette, Type, CheckCircle, XCircle, Copy, Check, Download, RefreshCw, FileImage, ShieldCheck, AlignLeft, Eye, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Shuffle, History, Compass, Sparkles, Layers, Grid, Globe, Activity, ThumbsUp, BarChart3, TrendingUp, FileJson, FileText, ChevronDown, Volume2, Sliders, MessageSquare, Code2, Target, Wand2, Bot, Zap, Share2, Lightbulb, Megaphone, X, Info, Search, ExternalLink, ArrowUpRight, Camera, Heart, Columns, LayoutGrid, Star, Ruler, Ban, Sun, Moon, AlertTriangle, Mic, MicOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ResponsiveContainer,
@@ -429,6 +429,76 @@ export default function BrandBibleDashboard({
 
   const [customLogoPrompt, setCustomLogoPrompt] = useState(bible.logoPrompt);
   const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [isListeningLogoVoice, setIsListeningLogoVoice] = useState(false);
+  const [logoVoiceError, setLogoVoiceError] = useState<string | null>(null);
+  const logoVoiceRecognitionRef = useRef<any>(null);
+
+  const toggleLogoVoice = () => {
+    setLogoVoiceError(null);
+    const SpeechRecognition = typeof window !== 'undefined' && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+
+    if (!SpeechRecognition) {
+      setLogoVoiceError("Voice commands require Chrome, Edge, or Safari.");
+      setTimeout(() => setLogoVoiceError(null), 4000);
+      return;
+    }
+
+    if (logoVoiceRecognitionRef.current) {
+      try {
+        logoVoiceRecognitionRef.current.stop();
+      } catch (e) {
+        // ignore
+      }
+      logoVoiceRecognitionRef.current = null;
+      setIsListeningLogoVoice(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      const baseText = customLogoPrompt ? customLogoPrompt.trim() : '';
+
+      recognition.onstart = () => {
+        setIsListeningLogoVoice(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          transcript += event.results[i][0].transcript;
+        }
+        const updated = baseText ? `${baseText} ${transcript.trim()}` : transcript.trim();
+        setCustomLogoPrompt(updated);
+      };
+
+      recognition.onerror = (event: any) => {
+        if (event.error === 'not-allowed') {
+          setLogoVoiceError("Microphone permission was denied.");
+        } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          setLogoVoiceError(`Voice input error: ${event.error}`);
+        }
+        setIsListeningLogoVoice(false);
+        logoVoiceRecognitionRef.current = null;
+        setTimeout(() => setLogoVoiceError(null), 4000);
+      };
+
+      recognition.onend = () => {
+        setIsListeningLogoVoice(false);
+        logoVoiceRecognitionRef.current = null;
+      };
+
+      logoVoiceRecognitionRef.current = recognition;
+      recognition.start();
+    } catch (err: any) {
+      setLogoVoiceError(err?.message || "Failed to start microphone.");
+      setIsListeningLogoVoice(false);
+    }
+  };
+
   const [downloading, setDownloading] = useState(false);
   const [toast, setToast] = useState<{ message: string; hex: string } | null>(null);
 
@@ -2979,14 +3049,14 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
                           <Eye className="w-4 h-4 text-indigo-600" />
                         </motion.button>
                         <motion.button
-                          whileHover={{ scale: 1.15, rotate: 180 }}
+                          whileHover={{ scale: 1.15, rotate: 15 }}
                           whileTap={{ scale: 0.9 }}
                           id="stage-edit-prompt-btn"
                           onClick={() => setShowPromptEditor(!showPromptEditor)}
                           className="bg-white hover:bg-slate-50 text-slate-800 p-2.5 rounded-full shadow-lg transition cursor-pointer"
-                          title="Refine Logo Style"
+                          title="Personalize Logo with AI Commands"
                         >
-                          <RefreshCw className="w-4 h-4 text-indigo-600" />
+                          <Wand2 className="w-4 h-4 text-indigo-600" />
                         </motion.button>
                       </div>
                     </motion.div>
@@ -3083,58 +3153,230 @@ Trusted leadership in ${ind}. ${comp} combines clarity and speed so you can achi
               </div>
             )}
 
-            {/* Prompt Editor */}
+            {/* Logo Command & Personalization Studio */}
             {showPromptEditor ? (
-              <div className={`space-y-3 p-5 border rounded-2xl font-sans mt-3 transition-colors duration-300 ${
-                isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+              <div className={`space-y-4 p-5 sm:p-6 border rounded-3xl font-sans mt-3 transition-all duration-300 shadow-md ${
+                isDark ? 'bg-slate-950/90 border-indigo-900/50 shadow-indigo-950/20' : 'bg-slate-50/90 border-indigo-200/80 shadow-indigo-100/50'
               }`}>
-                <label htmlFor="logo-custom-prompt" className={`block text-[11px] font-bold uppercase tracking-wider transition-colors duration-300 ${
-                  isDark ? 'text-slate-400' : 'text-slate-600'
-                }`}>
-                  Edit Illustration Concept Prompt
-                </label>
-                <textarea
-                  id="logo-custom-prompt"
-                  rows={3}
-                  value={customLogoPrompt}
-                  onChange={(e) => setCustomLogoPrompt(e.target.value)}
-                  className={`w-full p-3 border rounded-xl text-xs transition-colors duration-300 focus:outline-none focus:border-indigo-500 ${
-                    isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-700'
-                  }`}
-                />
-                <div className="flex justify-end gap-2 text-xs">
+                {/* Studio Header */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3 border-indigo-500/10">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-xl bg-indigo-600 text-white shadow-xs">
+                      <Wand2 className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className={`text-xs font-black uppercase tracking-wider ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        AI Logo Command Studio
+                      </h3>
+                      <p className="text-[10px] text-slate-400">
+                        Type or speak custom design commands to personalize your logo mark.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Voice Dictate Button */}
                   <button
-                    id="prompt-editor-cancel-btn"
-                    onClick={() => setShowPromptEditor(false)}
-                    className="px-4 py-2 hover:bg-slate-100 text-slate-500 rounded-full font-semibold transition cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    id="prompt-editor-generate-btn"
-                    onClick={handleRegenLogoClick}
+                    id="logo-voice-command-btn"
+                    type="button"
+                    onClick={toggleLogoVoice}
                     disabled={isLoadingLogo}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    className={`px-3 py-1.5 rounded-full text-[11px] font-bold flex items-center gap-1.5 transition-all duration-200 cursor-pointer border ${
+                      isListeningLogoVoice
+                        ? 'bg-rose-600 text-white border-rose-600 animate-pulse shadow-md'
+                        : isDark
+                          ? 'bg-indigo-950/70 border-indigo-800/80 text-indigo-300 hover:text-white hover:bg-indigo-900/60'
+                          : 'bg-white border-indigo-200 text-indigo-600 hover:bg-indigo-50 shadow-xs'
+                    }`}
+                    title={isListeningLogoVoice ? "Stop listening" : "Speak your logo commands using microphone"}
                   >
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin-slow" />
-                    Regenerate Logo
+                    {isListeningLogoVoice ? (
+                      <>
+                        <MicOff className="w-3.5 h-3.5 animate-spin" />
+                        <span>Listening... Stop</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Voice Command</span>
+                      </>
+                    )}
                   </button>
+                </div>
+
+                {/* Voice Error Notice */}
+                {logoVoiceError && (
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{logoVoiceError}</span>
+                  </div>
+                )}
+
+                {/* Voice Active Listening Banner */}
+                {isListeningLogoVoice && (
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-bold flex items-center gap-2 animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                    <Volume2 className="w-3.5 h-3.5" />
+                    <span>Listening to your command... Speak desired symbols, colors, or art styles!</span>
+                  </div>
+                )}
+
+                {/* Command Input Area */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    <label htmlFor="logo-custom-prompt">Your Logo Design Command Prompt</label>
+                    <span className="font-mono">{customLogoPrompt.length} chars</span>
+                  </div>
+                  <textarea
+                    id="logo-custom-prompt"
+                    rows={4}
+                    value={customLogoPrompt}
+                    onChange={(e) => setCustomLogoPrompt(e.target.value)}
+                    placeholder="e.g. Modern minimalist origami falcon emblem, sharp geometric folds, midnight navy and metallic gold accents, vector trademark icon on pure white background"
+                    className={`w-full p-3.5 border rounded-2xl text-xs transition-colors duration-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 leading-relaxed font-sans ${
+                      isDark ? 'bg-slate-900 border-slate-800 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-800 placeholder-slate-400 shadow-xs'
+                    }`}
+                  />
+                </div>
+
+                {/* Quick Style Directives Chips */}
+                <div className="space-y-1.5">
+                  <span className={`block text-[10px] font-extrabold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    1-Click Style Directives:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: '⚡ Minimalist Geometric', command: 'minimalist geometric vector emblem, clean sharp angles, modern symmetry, pure white background' },
+                      { label: '👑 Luxury Monogram', command: `luxury typographic monogram featuring initials of ${bible.companyName}, elegant serif linework, prestigious high fashion aesthetic` },
+                      { label: '✏️ Single-Line Art', command: 'continuous single-line contour drawing, delicate minimalist emblem, sleek vector trademark on white background' },
+                      { label: '🛡️ Tech Hexagon', command: 'futuristic cybersecurity tech mark, isometric hexagon, clean vector lines, high-tech modern icon' },
+                      { label: '🌿 Organic Botanical', command: 'delicate botanical emblem, organic foliage and clean geometric symmetry, sustainable earth aesthetic' },
+                      { label: '🏛️ Vintage Crest', command: 'prestigious luxury crest emblem, vintage royal heraldry, delicate filigree, refined gold accents' },
+                      { label: '🦊 Modern Mascot', command: `modern charismatic mascot emblem for ${bible.companyName}, flat geometric character mark, friendly and bold` },
+                      { label: '🌀 3D Origami Ribbon', command: 'abstract dynamic folded ribbon mark, modern origami optical illusion, smooth curvature vector' }
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => setCustomLogoPrompt(preset.command)}
+                        className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition-all duration-150 cursor-pointer ${
+                          isDark
+                            ? 'bg-slate-900 border-slate-800 text-slate-300 hover:border-indigo-500 hover:text-white'
+                            : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-400 hover:text-indigo-600 shadow-2xs'
+                        }`}
+                        title={`Replace command with: ${preset.command}`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Quick Modifier Badges (Appends to current command) */}
+                <div className="space-y-1.5 pt-1 border-t border-slate-500/10">
+                  <span className={`block text-[10px] font-extrabold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Add Details / Modifiers:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: '+ Pure White BG', text: ', on pure white background' },
+                      { label: '+ Gold Foil Accent', text: ', accented with metallic gold foil' },
+                      { label: '+ Negative Space', text: ', clever negative space optical effect' },
+                      { label: '+ Symmetrical', text: ', perfectly symmetrical balance' },
+                      { label: '+ Brand Palette', text: `, strictly using brand primary (${bible.colorPalette[0]?.hex || 'indigo'}) and secondary (${bible.colorPalette[1]?.hex || 'slate'}) colors` }
+                    ].map((mod) => (
+                      <button
+                        key={mod.label}
+                        type="button"
+                        onClick={() => {
+                          if (!customLogoPrompt.includes(mod.text.trim())) {
+                            setCustomLogoPrompt(prev => prev.trim() + mod.text);
+                          }
+                        }}
+                        className={`text-[9px] font-semibold px-2 py-0.5 rounded-md border transition-all cursor-pointer ${
+                          isDark
+                            ? 'bg-indigo-950/40 border-indigo-900/60 text-indigo-300 hover:bg-indigo-900/60'
+                            : 'bg-indigo-50/80 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                        }`}
+                      >
+                        {mod.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Studio Bottom Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-indigo-500/10">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCustomLogoPrompt(bible.logoPrompt)}
+                      className="text-[11px] text-slate-400 hover:text-indigo-500 font-bold flex items-center gap-1 cursor-pointer transition"
+                      title="Reset back to initial AI generated logo prompt"
+                    >
+                      <RefreshCw className="w-3 h-3" /> Reset to Initial
+                    </button>
+                    <span className="text-slate-500">•</span>
+                    <button
+                      type="button"
+                      onClick={() => setCustomLogoPrompt('')}
+                      className="text-[11px] text-slate-400 hover:text-rose-500 font-bold cursor-pointer transition"
+                    >
+                      Clear
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      id="prompt-editor-cancel-btn"
+                      type="button"
+                      onClick={() => setShowPromptEditor(false)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer ${
+                        isDark ? 'text-slate-400 hover:text-white hover:bg-slate-900' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/60'
+                      }`}
+                    >
+                      Close
+                    </button>
+                    <button
+                      id="prompt-editor-generate-btn"
+                      type="button"
+                      onClick={handleRegenLogoClick}
+                      disabled={isLoadingLogo || !customLogoPrompt.trim()}
+                      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:scale-98 text-white rounded-xl font-bold text-xs transition-all shadow-md shadow-indigo-600/30 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {isLoadingLogo ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Synthesizing Custom Logo...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Generate Custom Logo with AI</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
-              <div className="flex flex-wrap justify-between items-center py-2 gap-2 font-sans">
+              <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 font-sans border-t border-slate-500/10 mt-3">
                 <button
                   id="dashboard-toggle-prompt-editor-btn"
                   onClick={() => setShowPromptEditor(true)}
-                  className="text-xs text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1 cursor-pointer"
+                  className="group flex items-center gap-2 px-4 py-2 rounded-xl border border-indigo-500/40 bg-indigo-50/80 hover:bg-indigo-100/90 text-indigo-700 dark:bg-indigo-950/50 dark:border-indigo-800/80 dark:text-indigo-300 dark:hover:bg-indigo-900/60 font-bold text-xs shadow-xs transition-all duration-200 cursor-pointer hover:scale-[1.02] active:scale-98"
+                  title="Open AI Command Studio to personalize your logo mark"
                 >
-                  <RefreshCw className="w-3 h-3" /> Customize Logo Graphic Prompt & Regenerate
+                  <Wand2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 group-hover:rotate-12 transition-transform" />
+                  <span>Personalize Logo with Commands</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-indigo-600 text-white font-extrabold uppercase tracking-wide">
+                    AI Studio
+                  </span>
                 </button>
                 <button
                   onClick={() => setIsLogoHistoryOpen(true)}
-                  className="text-xs text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1.5 cursor-pointer transition-all hover:scale-102"
+                  className="text-xs text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
                 >
-                  <History className="w-3.5 h-3.5" /> Full Logo History Modal
+                  <History className="w-3.5 h-3.5" /> Logo History ({allLogos.length} Variations)
                 </button>
               </div>
             )}
